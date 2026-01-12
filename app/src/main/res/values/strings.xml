@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NoSmoke Timer</string>
+    <string name="notification_channel_id">smoke_timer_channel</string>
+    <string name="notification_channel_name">Smoke Timer</string>
+    <string name="notification_channel_description">Controls the smoke timer lock state</string>
+    
+    <string name="notification_title_unlocked">🚬 Timer Unlocked</string>
+    <string name="notification_title_locked">🌿 Timer Locked</string>
+    
+    <string name="action_lock">Lock</string>
+    <string name="action_show_time">Show Time</string>
+    
+    <string name="notification_text_unlocked">Tap to lock timer</string>
+    <string name="notification_text_locked">Remaining: %1$s</string>
+    
+    <string name="time_format">%1$dm %2$ds</string>
+    <string name="time_format_seconds">%1$ds</string>
+</resources>
+
+

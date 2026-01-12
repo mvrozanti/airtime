@@ -1,0 +1,16 @@
+# Terminal Command Rules
+
+## DO NOT chain multiple commands
+- Run ONE command at a time
+- Wait for each command to complete before running the next
+- Use separate tool calls for each command
+
+## DO NOT use heredoc strings
+- Never use heredoc syntax in terminal commands
+- If you need multiline input, write a script file first, then execute it
+- Use proper script files (.sh, .py, etc.) for complex operations
+
+## Prefer scripts for complex operations
+- If you need multiple commands, write a shell script
+- Execute the script file instead of chaining commands
+- This makes debugging easier and avoids shell parsing issues
