@@ -9,32 +9,37 @@ import kotlinx.coroutines.runBlocking
 
 class NotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        Log.d("NotificationActionReceiver", "=== BROADCAST RECEIVER TRIGGERED ===")
-        Log.d("NotificationActionReceiver", "Action: ${intent.action}")
-        Log.d("NotificationActionReceiver", "Component: ${intent.component}")
-        Log.d("NotificationActionReceiver", "Package: ${intent.`package`}")
+        Log.e("NotificationActionReceiver", "=== BROADCAST RECEIVER TRIGGERED ===")
+        Log.e("NotificationActionReceiver", "Action: ${intent.action}")
+        Log.e("NotificationActionReceiver", "Component: ${intent.component}")
+        Log.e("NotificationActionReceiver", "Package: ${intent.`package`}")
+        Log.e("NotificationActionReceiver", "Extras: ${intent.extras}")
 
         when (intent.action) {
             ACTION_LOCK -> {
-                Log.d("NotificationActionReceiver", "Processing ACTION_LOCK")
-                val stateManager = StateManager(context.applicationContext)
-                runBlocking {
-                    val isLockedBefore = stateManager.getIsLocked()
-                    Log.d("NotificationActionReceiver", "Lock state BEFORE action: $isLockedBefore")
+                Log.e("NotificationActionReceiver", "Processing ACTION_LOCK")
+                try {
+                    val stateManager = StateManager(context.applicationContext)
+                    runBlocking {
+                        val isLockedBefore = stateManager.getIsLocked()
+                        Log.e("NotificationActionReceiver", "Lock state BEFORE action: $isLockedBefore")
 
-                    // Only lock if not already locked (cannot unlock by tapping)
-                    if (!isLockedBefore) {
-                        Log.d("NotificationActionReceiver", "Locking timer...")
-                        stateManager.lock()
-                        val isLockedAfter = stateManager.getIsLocked()
-                        Log.d("NotificationActionReceiver", "Timer locked successfully. Lock state AFTER: $isLockedAfter")
-                    } else {
-                        Log.d("NotificationActionReceiver", "Timer already locked, ignoring tap")
+                        // Only lock if not already locked (cannot unlock by tapping)
+                        if (!isLockedBefore) {
+                            Log.e("NotificationActionReceiver", "Locking timer...")
+                            stateManager.lock()
+                            val isLockedAfter = stateManager.getIsLocked()
+                            Log.e("NotificationActionReceiver", "Timer locked successfully. Lock state AFTER: $isLockedAfter")
+                        } else {
+                            Log.e("NotificationActionReceiver", "Timer already locked, ignoring tap")
+                        }
                     }
+                } catch (e: Exception) {
+                    Log.e("NotificationActionReceiver", "Error in ACTION_LOCK", e)
                 }
             }
             else -> {
-                Log.w("NotificationActionReceiver", "Unknown action: ${intent.action}")
+                Log.e("NotificationActionReceiver", "Unknown action: ${intent.action}")
             }
         }
     }
