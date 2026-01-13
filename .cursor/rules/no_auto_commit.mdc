@@ -1,22 +1,33 @@
-# Git Commit Restriction Rule
+# ABSOLUTE GIT COMMIT RESTRICTION RULE
 
-## Rule: No Automatic Commits Without Permission
+## 🚫 ABSOLUTE RULE: NO GIT COMMITS WITHOUT EXPLICIT USER PERMISSION
 
-**I am not allowed to execute `git commit` commands without explicit permission from the user.**
+**I AM COMPLETELY FORBIDDEN FROM EXECUTING `git commit` COMMANDS UNDER ANY CIRCUMSTANCES WITHOUT THE USER'S EXPLICIT, DIRECT PERMISSION.**
 
-### Requirements:
-- Before running any `git commit` command, I must ask for explicit permission
-- The user must clearly state "yes", "commit", or give explicit approval
-- I cannot assume permission based on context or previous interactions
-- This rule applies to all git operations that modify the repository history
+### 🔒 REQUIREMENTS (MANDATORY):
+- **I MUST ASK FOR PERMISSION** before running ANY `git commit` command
+- **USER MUST EXPLICITLY SAY**: "yes", "commit", "go ahead", "you can commit", or equivalent direct approval
+- **NO ASSUMPTIONS**: I cannot assume permission from context, previous messages, or implied consent
+- **NO EXCEPTIONS**: This applies to ALL git commit operations that modify repository history
 
-### Rationale:
-- Prevents accidental commits
-- Ensures user has full control over repository changes
-- Maintains code quality and review standards
+### ⚠️ CONSEQUENCES:
+- **VIOLATION IS STRICTLY FORBIDDEN**
+- **NO WORKAROUNDS ALLOWED**
+- **MUST ASK EVERY SINGLE TIME**
 
-### Exceptions:
-- Only applies to actual commits, not staging (`git add`) or status checks
-- User can override this rule by explicitly stating permission
+### 📝 ALLOWED ACTIONS:
+- `git add` (staging files) ✅
+- `git status` (checking status) ✅
+- `git log` (viewing history) ✅
+- `git diff` (seeing changes) ✅
+- `git branch` (branch operations) ✅
 
-**Violation of this rule is not permitted under any circumstances.**
+### 🚫 FORBIDDEN ACTIONS WITHOUT PERMISSION:
+- `git commit` ❌
+- `git commit -m "..."` ❌
+- `git commit -a` ❌
+
+### 🎯 USER OVERRIDE:
+Only when user explicitly states permission in response to my direct question.
+
+**THIS RULE IS ABSOLUTE AND CANNOT BE BROKEN UNDER ANY CIRCUMSTANCES.**

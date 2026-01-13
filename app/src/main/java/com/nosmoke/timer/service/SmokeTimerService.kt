@@ -1,42 +1,32 @@
 package com.nosmoke.timer.service
 
-import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import android.os.PowerManager
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
-import com.nosmoke.timer.MainActivity
 import com.nosmoke.timer.R
 import com.nosmoke.timer.data.StateManager
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 class SmokeTimerService : LifecycleService() {
 
     private lateinit var stateManager: StateManager
     private lateinit var notificationManager: NotificationManager
-    private lateinit var alarmManager: AlarmManager
-    private lateinit var wakeLock: PowerManager.WakeLock
 
     companion object {
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "smoke_timer_channel"
-        private const val ALARM_REQUEST_CODE = 1001
 
-        fun start(context: Context, action: String? = null) {
-            val intent = Intent(context, SmokeTimerService::class.java).apply {
-                this.action = action
-            }
+        fun start(context: Context) {
+            val intent = Intent(context, SmokeTimerService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -47,43 +37,22 @@ class SmokeTimerService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.d("SmokeTimerService", "Service onCreate")
         stateManager = StateManager(this)
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NoSmoke::WakeLock")
-        wakeLock.acquire() // No timeout - released in onDestroy
-
         createNotificationChannel()
-        val initialNotification = createNotification(false, 0L)
-        startForeground(NOTIFICATION_ID, initialNotification)
-
+        startForeground(NOTIFICATION_ID, createNotification(false))
         observeState()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action
-        Log.d("SmokeTimerService", "onStartCommand: $action")
-
-        // Handle notification tap - check for our unique action
-        if (action?.startsWith("ACTION_LOCK_FROM_NOTIFICATION_") == true) {
-            Log.e("SmokeTimerService", "=== NOTIFICATION TAP DETECTED VIA SERVICE ===")
-            Log.e("SmokeTimerService", "Action: $action")
+        if (intent?.action == "LOCK") {
             lifecycleScope.launch {
                 val isLocked = stateManager.getIsLocked()
-                Log.e("SmokeTimerService", "Current lock state: $isLocked")
                 if (!isLocked) {
                     stateManager.lock()
-                    Log.e("SmokeTimerService", "Timer locked from notification!")
-                } else {
-                    Log.e("SmokeTimerService", "Timer already locked, ignoring notification tap")
                 }
             }
         }
-
-        super.onStartCommand(intent, flags, startId)
         return START_STICKY
     }
 
@@ -92,187 +61,57 @@ class SmokeTimerService : LifecycleService() {
         return null
     }
 
-    override fun onDestroy() {
-        Log.d("SmokeTimerService", "Service onDestroy")
-        if (wakeLock.isHeld) {
-            wakeLock.release()
+    private fun observeState() {
+        lifecycleScope.launch {
+            stateManager.isLocked.collect { isLocked ->
+                updateNotification(isLocked)
+            }
         }
-        super.onDestroy()
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                getString(R.string.notification_channel_name),
+                "Timer",
                 NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = getString(R.string.notification_channel_description)
-                setShowBadge(false)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                setBypassDnd(false)
-            }
+            )
             notificationManager.createNotificationChannel(channel)
         }
     }
 
-    private fun observeState() {
-        lifecycleScope.launch {
-            combine(
-                stateManager.isLocked,
-                stateManager.lockEndTimestamp
-            ) { isLocked, lockEndTimestamp ->
-                Pair(isLocked, lockEndTimestamp)
-            }.collect { (isLocked, lockEndTimestamp) ->
-                updateNotification(isLocked, lockEndTimestamp)
-                
-                if (isLocked && lockEndTimestamp > 0) {
-                    scheduleUnlockAlarm(lockEndTimestamp)
-                } else {
-                    cancelUnlockAlarm()
-                }
-                
-                // Check if timer expired
-                if (isLocked && lockEndTimestamp > 0) {
-                    val remaining = stateManager.getRemainingTimeMillis(lockEndTimestamp)
-                    if (remaining <= 0) {
-                        Log.d("SmokeTimerService", "Timer expired, unlocking")
-                        stateManager.unlock()
-                    }
-                }
-            }
-        }
+    private fun updateNotification(isLocked: Boolean) {
+        val notification = createNotification(isLocked)
+        notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
+    private fun createNotification(isLocked: Boolean): Notification {
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("NoSmoke")
+            .setSmallIcon(if (isLocked) R.drawable.ic_notification_leaf else R.drawable.ic_notification_cigarette)
+            .setOngoing(true)
 
-
-
-    private fun scheduleUnlockAlarm(lockEndTimestamp: Long) {
-        val intent = Intent(this, AlarmReceiver::class.java).apply {
-            action = "com.nosmoke.timer.UNLOCK"
-        }
-        
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        if (isLocked) {
+            builder.setContentText("Timer locked")
         } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
-        }
-        
-        val pendingIntent = PendingIntent.getBroadcast(this, ALARM_REQUEST_CODE, intent, flags)
-
-        when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    lockEndTimestamp,
-                    pendingIntent
-                )
+            val intent = Intent(this, SmokeTimerService::class.java).apply {
+                action = "LOCK"
             }
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT -> {
-                alarmManager.setExact(AlarmManager.RTC_WAKEUP, lockEndTimestamp, pendingIntent)
-            }
-            else -> {
-                alarmManager.set(AlarmManager.RTC_WAKEUP, lockEndTimestamp, pendingIntent)
-            }
-        }
-    }
-
-    private fun cancelUnlockAlarm() {
-        val intent = Intent(this, AlarmReceiver::class.java).apply {
-            action = "com.nosmoke.timer.UNLOCK"
-        }
-        
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
-        }
-        
-        val pendingIntent = PendingIntent.getBroadcast(this, ALARM_REQUEST_CODE, intent, flags)
-        alarmManager.cancel(pendingIntent)
-    }
-
-    private fun updateNotification(isLocked: Boolean, lockEndTimestamp: Long) {
-        try {
-            Log.d("SmokeTimerService", "Updating notification, isLocked: $isLocked")
-            // Cancel existing notification before updating to clear any cached PendingIntent
-            notificationManager.cancel(NOTIFICATION_ID)
-            val notification = createNotification(isLocked, lockEndTimestamp)
-            notificationManager.notify(NOTIFICATION_ID, notification)
-        } catch (e: Exception) {
-            Log.e("SmokeTimerService", "Error updating notification", e)
-        }
-    }
-
-    private fun createNotification(isLocked: Boolean, lockEndTimestamp: Long): Notification {
-        val title = if (isLocked) {
-            getString(R.string.notification_title_locked)
-        } else {
-            getString(R.string.notification_title_unlocked)
+            val pendingIntent = PendingIntent.getService(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val action = NotificationCompat.Action.Builder(
+                R.drawable.ic_notification_cigarette,
+                "Lock",
+                pendingIntent
+            ).build()
+            builder.setContentText("Tap to lock")
+                .addAction(action)
         }
 
-        val text = if (isLocked) {
-            "Timer locked"
-        } else {
-            "Tap to lock"
-        }
-
-        // Create stable PendingIntent that updates properly for notification changes
-        val lockIntent = Intent(this, NotificationActionReceiver::class.java).apply {
-            action = "ACTION_LOCK_FROM_NOTIFICATION"
-            // Add state info to distinguish the action
-            putExtra("notification_id", NOTIFICATION_ID)
-            putExtra("is_locked", isLocked)
-        }
-
-        val contentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            // KEY FIX: Use FLAG_UPDATE_CURRENT with stable requestCode
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
-        }
-
-        // Use stable notification ID as requestCode so PendingIntent updates correctly
-        val contentPendingIntent = PendingIntent.getBroadcast(this, NOTIFICATION_ID, lockIntent, contentFlags)
-
-        // Also create a content intent that just opens the app
-        val openAppIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val openAppPendingIntent = PendingIntent.getActivity(
-            this, 1003, openAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        Log.d("SmokeTimerService", "Created STABLE BROADCAST PendingIntent: $contentPendingIntent (requestCode=$NOTIFICATION_ID) for isLocked=$isLocked")
-
-        val smallIcon = if (isLocked) {
-            R.drawable.ic_notification_leaf
-        } else {
-            R.drawable.ic_notification_cigarette
-        }
-
-        Log.d("SmokeTimerService", "Building notification with contentIntent: $contentPendingIntent")
-
-        // Add lock action button to notification
-        val lockAction = NotificationCompat.Action.Builder(
-            R.drawable.ic_notification_cigarette, // Use cigarette icon for lock action
-            "Lock Timer",
-            contentPendingIntent
-        ).build()
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setSmallIcon(smallIcon)
-            .setContentIntent(openAppPendingIntent) // Tapping notification opens app
-            .setOngoing(true) // Always ongoing for foreground service
-            .addAction(lockAction) // Add the lock button
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setShowWhen(false)
-            .build()
+        return builder.build()
     }
 }
-
-
