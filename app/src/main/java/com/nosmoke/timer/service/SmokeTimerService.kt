@@ -226,7 +226,7 @@ class SmokeTimerService : LifecycleService() {
             .setContentText(text)
             .setSmallIcon(smallIcon)
             .setContentIntent(contentPendingIntent)
-            .setOngoing(true)
+            .setOngoing(false)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
