@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
+        
         stateManager = StateManager(this)
         statusText = findViewById(R.id.statusText)
         timeText = findViewById(R.id.timeText)
@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
                 stateManager.lock()
             }
         }
-
+        
         // Request notification permission for Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ActivityCompat.checkSelfPermission(
@@ -108,7 +108,7 @@ class MainActivity : ComponentActivity() {
     private fun updateUI(isLocked: Boolean, lockEndTimestamp: Long, increment: Long) {
         // Update counter (increment represents number of cigarettes smoked)
         counterText.text = "Cigarettes smoked: $increment"
-
+        
         if (isLocked) {
             titleText.text = "🌿"
             statusText.text = "Timer Locked"

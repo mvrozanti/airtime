@@ -55,21 +55,22 @@ def download_and_convert(emoji_char, output_name):
         result.putalpha(alpha)
         
         # Now invert to white for Android notification icons
-        # Create white version
-        white_result = Image.new('RGBA', img.size, (0, 0, 0, 0))
-        white_layer = Image.new('RGB', img.size, (255, 255, 255))
-        white_result = Image.composite(white_layer, white_result, alpha)
-        white_result.putalpha(alpha)
+        # Create white version WITHOUT transparency (solid white icons)
+        white_result = Image.new('RGB', img.size, (255, 255, 255))  # Solid white background
+        white_layer = Image.new('RGB', img.size, (255, 255, 255))   # White foreground
+        white_result = Image.composite(white_layer, white_result, alpha)  # Composite with alpha mask
+        # Convert to RGB only (no alpha channel) - makes everything fully opaque
         
         # Generate all sizes (using white version for Android)
         for density, size in DENSITIES:
             dir_path = os.path.join(BASE_DIR, f'drawable-{density}')
             os.makedirs(dir_path, exist_ok=True)
-            
+
             resized = white_result.resize((size, size), Image.Resampling.LANCZOS)
             output_path = os.path.join(dir_path, f'{output_name}.png')
+            # Save as RGB PNG (no transparency)
             resized.save(output_path, 'PNG')
-            print(f'  Created {output_path} ({size}x{size})')
+            print(f'  Created {output_path} ({size}x{size}) - SOLID (no transparency)')
         
         os.remove(temp_path)
         return True
