@@ -123,7 +123,6 @@ class SmokeTimerService : LifecycleService() {
 
     private fun createNotification(isLocked: Boolean, lockEndTimestamp: Long = 0L): Notification {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Air Time")
             .setSmallIcon(if (isLocked) R.drawable.ic_notification_leaf else R.drawable.ic_notification_cigarette)
             .setOngoing(true)
             .setShowWhen(false)
