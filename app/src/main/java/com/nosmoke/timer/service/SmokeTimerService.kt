@@ -216,6 +216,8 @@ class SmokeTimerService : LifecycleService() {
             R.drawable.ic_notification_cigarette
         }
 
+        Log.d("SmokeTimerService", "Building notification with contentIntent: $contentPendingIntent")
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
