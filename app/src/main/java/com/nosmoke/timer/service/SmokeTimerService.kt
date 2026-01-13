@@ -199,8 +199,8 @@ class SmokeTimerService : LifecycleService() {
         }
 
         // Notification tap locks (only when unlocked, does nothing when locked)
-        val lockIntent = Intent(this, NotificationActionReceiver::class.java).apply {
-            action = NotificationActionReceiver.ACTION_LOCK
+        val lockIntent = Intent("com.nosmoke.timer.ACTION_LOCK").apply {
+            setClass(this@SmokeTimerService, NotificationActionReceiver::class.java)
         }
 
         val contentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
