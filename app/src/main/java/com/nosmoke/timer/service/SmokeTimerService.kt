@@ -201,20 +201,14 @@ class SmokeTimerService : LifecycleService() {
         // Notification tap locks (only when unlocked, does nothing when locked)
         val lockIntent = Intent(this, NotificationActionReceiver::class.java).apply {
             action = NotificationActionReceiver.ACTION_LOCK
-            // Add multiple unique extras to ensure PendingIntent uniqueness
-            putExtra("timestamp", System.currentTimeMillis())
-            putExtra("random_id", (0..Int.MAX_VALUE).random())
-            putExtra("notification_update_id", System.nanoTime())
         }
-
-        Log.d("SmokeTimerService", "Creating PendingIntent for notification, isLocked: $isLocked")
 
         val contentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         } else {
             PendingIntent.FLAG_UPDATE_CURRENT
         }
-        val contentPendingIntent = PendingIntent.getBroadcast(this, System.currentTimeMillis().toInt(), lockIntent, contentFlags)
+        val contentPendingIntent = PendingIntent.getBroadcast(this, 1002, lockIntent, contentFlags)
 
         val smallIcon = if (isLocked) {
             R.drawable.ic_notification_leaf
