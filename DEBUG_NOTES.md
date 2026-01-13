@@ -39,3 +39,16 @@ The final working solution:
 - PendingIntent uses unique request code `LOCK_ACTION_REQUEST_CODE` (1002)
 - Fresh install was necessary to clear any cached/stale state
 
+## Important Note: App Reinstall Bug
+**The double-click bug occurs after every app reinstall.** To fix it, you must perform a full cleanup before reinstalling:
+
+```bash
+adb shell am force-stop com.nosmoke.timer
+adb shell pm clear com.nosmoke.timer
+adb uninstall com.nosmoke.timer
+adb install app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n com.nosmoke.timer/.MainActivity
+```
+
+Without this cleanup, the notification lock button will require two clicks. This appears to be related to cached/stale PendingIntent or BroadcastReceiver state that persists even after app reinstall.
+
