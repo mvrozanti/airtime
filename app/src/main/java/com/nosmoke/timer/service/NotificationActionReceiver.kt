@@ -11,7 +11,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val pendingResult = goAsync()
         val timestamp = intent.getLongExtra("timestamp", 0L)
-        Log.d("NotificationActionReceiver", "Received action: ${intent.action}, timestamp: $timestamp")
+        val currentTime = System.currentTimeMillis()
+        Log.d("NotificationActionReceiver", "Received action: ${intent.action}, timestamp: $timestamp, currentTime: $currentTime, delay: ${currentTime - timestamp}ms")
 
         when (intent.action) {
             ACTION_LOCK -> {

@@ -175,6 +175,7 @@ class SmokeTimerService : LifecycleService() {
 
     private fun updateNotification(isLocked: Boolean, lockEndTimestamp: Long) {
         try {
+            Log.d("SmokeTimerService", "Updating notification, isLocked: $isLocked")
             val notification = createNotification(isLocked, lockEndTimestamp)
             notificationManager.notify(NOTIFICATION_ID, notification)
         } catch (e: Exception) {
@@ -198,9 +199,13 @@ class SmokeTimerService : LifecycleService() {
         // Notification tap locks (only when unlocked, does nothing when locked)
         val lockIntent = Intent(this, NotificationActionReceiver::class.java).apply {
             action = NotificationActionReceiver.ACTION_LOCK
-            // Add a unique extra to ensure PendingIntent uniqueness
+            // Add multiple unique extras to ensure PendingIntent uniqueness
             putExtra("timestamp", System.currentTimeMillis())
+            putExtra("random_id", (0..Int.MAX_VALUE).random())
+            putExtra("notification_update_id", System.nanoTime())
         }
+
+        Log.d("SmokeTimerService", "Creating PendingIntent for notification, isLocked: $isLocked")
 
         val contentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
