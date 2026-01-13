@@ -53,15 +53,18 @@ class StateManager(private val context: Context) {
         val lockEndTime = System.currentTimeMillis() + lockDuration
         val newIncrement = currentIncrement + 1
 
-        Log.d("StateManager", "Locking timer: increment=$currentIncrement, duration=$lockDuration ms, endTime=$lockEndTime")
+        Log.e("StateManager", "LOCKING TIMER: increment=$currentIncrement, duration=$lockDuration ms, endTime=$lockEndTime")
+        Log.e("StateManager", "LOCKING TIMER: About to edit DataStore...")
 
         context.dataStore.edit { preferences ->
+            Log.e("StateManager", "LOCKING TIMER: Inside DataStore edit block")
             preferences[IS_LOCKED_KEY] = true
             preferences[LOCK_END_TIMESTAMP_KEY] = lockEndTime
             preferences[INCREMENT_KEY] = newIncrement
+            Log.e("StateManager", "LOCKING TIMER: DataStore values set")
         }
 
-        Log.d("StateManager", "Timer locked successfully")
+        Log.e("StateManager", "TIMER LOCKED SUCCESSFULLY")
     }
 
     suspend fun unlock() {

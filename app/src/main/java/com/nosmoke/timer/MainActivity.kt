@@ -63,8 +63,18 @@ class MainActivity : ComponentActivity() {
         lockButton = findViewById(R.id.lockButton)
 
         lockButton.setOnClickListener {
+            Log.e("MainActivity", "=== LOCK BUTTON CLICKED ===")
             lifecycleScope.launch {
+                Log.e("MainActivity", "Lock button: Starting lock operation")
+                val isLockedBefore = stateManager.getIsLocked()
+                Log.e("MainActivity", "Lock button: State BEFORE lock: $isLockedBefore")
+
                 stateManager.lock()
+
+                val isLockedAfter = stateManager.getIsLocked()
+                Log.e("MainActivity", "Lock button: State AFTER lock: $isLockedAfter")
+
+                Log.e("MainActivity", "Lock button: Lock operation completed")
             }
         }
 
