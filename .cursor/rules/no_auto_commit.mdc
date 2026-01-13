@@ -1,0 +1,22 @@
+# Git Commit Restriction Rule
+
+## Rule: No Automatic Commits Without Permission
+
+**I am not allowed to execute `git commit` commands without explicit permission from the user.**
+
+### Requirements:
+- Before running any `git commit` command, I must ask for explicit permission
+- The user must clearly state "yes", "commit", or give explicit approval
+- I cannot assume permission based on context or previous interactions
+- This rule applies to all git operations that modify the repository history
+
+### Rationale:
+- Prevents accidental commits
+- Ensures user has full control over repository changes
+- Maintains code quality and review standards
+
+### Exceptions:
+- Only applies to actual commits, not staging (`git add`) or status checks
+- User can override this rule by explicitly stating permission
+
+**Violation of this rule is not permitted under any circumstances.**
