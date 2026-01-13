@@ -231,6 +231,14 @@ class SmokeTimerService : LifecycleService() {
         }
 
         val contentPendingIntent = PendingIntent.getBroadcast(this, uniqueRequestCode, lockIntent, contentFlags)
+        // Also create a content intent that just opens the app
+        val openAppIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val openAppPendingIntent = PendingIntent.getActivity(
+            this, 1003, openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         Log.d("SmokeTimerService", "Created UNIQUE BROADCAST PendingIntent: $contentPendingIntent (requestCode=$uniqueRequestCode) for isLocked=$isLocked")
 
         val smallIcon = if (isLocked) {
@@ -259,6 +267,7 @@ class SmokeTimerService : LifecycleService() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setShowWhen(false)
+            .build()
     }
 }
 
