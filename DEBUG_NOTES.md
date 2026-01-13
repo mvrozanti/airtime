@@ -46,21 +46,33 @@ Notification lock button requires two clicks - first click does nothing, second 
 - Theory: The order of cleanup commands might matter
 - Note: Attempt 7 was marked as SUCCESS with order: force-stop → clear → uninstall → install
 - Current tests needed: Verify exact order that worked in Attempt 7
-- Status: **TESTING** - Need to verify if order matters
+- Status: **FAILED** - Bug still persisted
+
+### Attempt 11: PendingIntent FLAG_CANCEL_CURRENT + unique timestamp
+- **Status**: SUCCESS
+- **Changes**:
+  - Changed PendingIntent flags from `FLAG_UPDATE_CURRENT` to `FLAG_CANCEL_CURRENT`
+  - Added unique timestamp extra to intent to prevent caching
+  - Used request code 0 instead of fixed code
+  - Added `goAsync()` to BroadcastReceiver for proper async handling
+  - Added comprehensive error handling and logging
+  - Fixed wakeLock timeout to prevent crashes
+- **Result**: **SUCCESS** - Single-click now works correctly!
 
 ## Solution
-**NO KNOWN WORKING SOLUTION** - The double-click bug is currently unresolved. All attempts have failed:
-- BroadcastReceiver uses `runBlocking` for synchronous state changes
-- PendingIntent uses unique request code `LOCK_ACTION_REQUEST_CODE` (1002)
-- Various cleanup methods (minimal, full) have been tried
-- Notification cancellation has been tried and reverted
-- **Current state: Bug persists regardless of approach**
+The double-click bug was caused by Android's PendingIntent caching system. The key fixes were:
+
+1. **Use `FLAG_CANCEL_CURRENT`** instead of `FLAG_UPDATE_CURRENT` to force cancellation of any existing PendingIntent
+2. **Add unique intent extras** (timestamp) to ensure each PendingIntent is treated as unique
+3. **Use `goAsync()`** in BroadcastReceiver to properly handle asynchronous operations
+4. **Add proper error handling** to prevent silent crashes
+5. **Fix wakeLock timeout** to prevent service lifecycle issues
 
 ## Current Status
-**The double-click bug is persistent and unresolved.** Multiple approaches have been tried including notification cancellation, reverting changes, different cleanup methods, but the notification still requires two clicks to lock. This appears to be a deep Android system-level issue that may require a completely different architectural approach.
+**RESOLVED** - The double-click bug has been successfully fixed. The notification now responds correctly to single taps.
 
 ## Important Note: App Reinstall Bug
-**The double-click bug occurs after every app reinstall.** To fix it, you must perform a full cleanup before reinstalling:
+**The double-click bug occurred after every app reinstall.** To fix it, you must perform a full cleanup before reinstalling:
 
 ```bash
 adb shell am force-stop com.nosmoke.timer
@@ -71,4 +83,3 @@ adb shell am start -n com.nosmoke.timer/.MainActivity
 ```
 
 Without this cleanup, the notification lock button will require two clicks. This appears to be related to cached/stale PendingIntent or BroadcastReceiver state that persists even after app reinstall.
-
