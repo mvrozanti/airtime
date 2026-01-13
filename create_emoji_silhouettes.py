@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Download emoji images and convert to black silhouettes (then invert to white for Android).
+Download emoji images and convert to white silhouettes with transparency for Android.
 """
 
 import requests
@@ -18,63 +18,54 @@ DENSITIES = [
 BASE_DIR = 'app/src/main/res'
 
 def download_and_convert(emoji_char, output_name):
-    """Download emoji and convert to silhouette."""
-    # Use emoji CDN service
-    url = f"https://emojicdn.elk.sh/{emoji_char}"
-    
+    """Download emoji and convert to white silhouette with transparency."""
+    url = f"https://emojicdn.elk.sh/{emoji_char}?style=apple"
+
     print(f"Downloading {output_name} ({emoji_char})...")
     try:
         response = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
         if response.status_code != 200:
             print(f"  Failed to download: HTTP {response.status_code}")
             return False
-            
+
         # Save to temp file
         temp_path = f"/tmp/emoji_{output_name}.png"
         with open(temp_path, 'wb') as f:
             f.write(response.content)
-        
+
         # Open image
         img = Image.open(temp_path)
-        
+
         # Convert to RGBA if not already
         if img.mode != 'RGBA':
             img = img.convert('RGBA')
-        
-        # Extract alpha channel - this is our mask
-        # Everything that's not transparent (alpha > threshold) becomes the shape
+
+        # Extract alpha channel (transparency mask)
         alpha = img.split()[3]
-        
-        # Create black silhouette: black where there's content, transparent elsewhere
-        result = Image.new('RGBA', img.size, (0, 0, 0, 0))
-        
-        # Copy alpha channel to create the silhouette
-        # Put black (0,0,0) where alpha is > threshold
-        black_layer = Image.new('RGB', img.size, (0, 0, 0))
-        result = Image.composite(black_layer, result, alpha)
-        result.putalpha(alpha)
-        
-        # Now invert to white for Android notification icons
-        # Create white version WITHOUT transparency (solid white icons)
-        white_result = Image.new('RGB', img.size, (255, 255, 255))  # Solid white background
-        white_layer = Image.new('RGB', img.size, (255, 255, 255))   # White foreground
-        white_result = Image.composite(white_layer, white_result, alpha)  # Composite with alpha mask
-        # Convert to RGB only (no alpha channel) - makes everything fully opaque
-        
-        # Generate all sizes (using white version for Android)
+
+        # Create result image: white where alpha > 0, transparent elsewhere
+        result = Image.new('RGBA', img.size, (255, 255, 255, 0))  # Start with transparent white
+
+        # Apply alpha channel to create white silhouette
+        white_layer = Image.new('RGBA', img.size, (255, 255, 255, 255))  # Solid white
+        result = Image.composite(white_layer, result, alpha)
+
+        # Generate all sizes
         for density, size in DENSITIES:
             dir_path = os.path.join(BASE_DIR, f'drawable-{density}')
             os.makedirs(dir_path, exist_ok=True)
 
-            resized = white_result.resize((size, size), Image.Resampling.LANCZOS)
+            # Resize using high-quality resampling
+            resized = result.resize((size, size), Image.Resampling.LANCZOS)
             output_path = os.path.join(dir_path, f'{output_name}.png')
-            # Save as RGB PNG (no transparency)
+
+            # Save as RGBA PNG (with transparency)
             resized.save(output_path, 'PNG')
-            print(f'  Created {output_path} ({size}x{size}) - SOLID (no transparency)')
-        
+            print(f'  Created {output_path} ({size}x{size}) - WHITE SILHOUETTE (with transparency)')
+
         os.remove(temp_path)
         return True
-        
+
     except Exception as e:
         print(f"  Error: {e}")
         import traceback
@@ -86,6 +77,6 @@ if __name__ == '__main__':
         ('🚬', 'ic_notification_cigarette'),
         ('🌿', 'ic_notification_leaf'),
     ]
-    
+
     for emoji, name in icons:
         download_and_convert(emoji, name)
