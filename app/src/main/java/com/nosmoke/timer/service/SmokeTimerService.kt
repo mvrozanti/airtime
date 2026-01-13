@@ -241,13 +241,24 @@ class SmokeTimerService : LifecycleService() {
 
         Log.d("SmokeTimerService", "Building notification with contentIntent: $contentPendingIntent")
 
+        // Add lock action button to notification
+        val lockAction = NotificationCompat.Action.Builder(
+            R.drawable.ic_notification_cigarette, // Use cigarette icon for lock action
+            "Lock Timer",
+            contentPendingIntent
+        ).build()
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(smallIcon)
-            .setContentIntent(contentPendingIntent)
-            .setOngoing(false)
-            .setAutoCancel(true)
+            .setContentIntent(openAppPendingIntent) // Tapping notification opens app
+            .setOngoing(true) // Always ongoing for foreground service
+            .addAction(lockAction) // Add the lock button
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
