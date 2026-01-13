@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var timeText: TextView
     private lateinit var titleText: TextView
     private lateinit var counterText: TextView
-    private lateinit var resetButton: Button
+    private lateinit var lockButton: Button
     private val updateHandler = Handler(Looper.getMainLooper())
     private var updateRunnable: Runnable? = null
 
