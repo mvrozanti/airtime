@@ -48,6 +48,13 @@ class MainActivity : ComponentActivity() {
         val fromNotification = intent?.getBooleanExtra("from_notification", false)
         Log.e("MainActivity", "onCreate: from_notification = $fromNotification")
 
+        if (fromNotification) {
+            Log.e("MainActivity", "Launched from notification - locking timer")
+            lifecycleScope.launch {
+                stateManager.lock()
+            }
+        }
+
         stateManager = StateManager(this)
         statusText = findViewById(R.id.statusText)
         timeText = findViewById(R.id.timeText)
