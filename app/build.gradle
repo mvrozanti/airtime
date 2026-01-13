@@ -51,6 +51,9 @@ dependencies {
     
     // WorkManager for background tasks
     implementation 'androidx.work:work-runtime-ktx:2.9.0'
+    
+    // OkHttp for HTTP requests
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 }
 
 

@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import android.util.Log
 import com.nosmoke.timer.service.AlarmReceiver
+import com.nosmoke.timer.service.AbacusService
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "smoke_timer_state")
 
@@ -86,6 +87,9 @@ class StateManager(private val context: Context) {
         } else {
             alarmManager.setExact(AlarmManager.RTC_WAKEUP, lockEndTime, pendingIntent)
         }
+
+        // Track lock with Abacus (fire and forget)
+        AbacusService.trackLock()
 
         Log.e("StateManager", "TIMER LOCKED SUCCESSFULLY - Alarm scheduled for unlock")
     }
