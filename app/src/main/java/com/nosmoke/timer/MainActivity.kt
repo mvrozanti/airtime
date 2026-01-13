@@ -48,11 +48,11 @@ class MainActivity : ComponentActivity() {
         timeText = findViewById(R.id.timeText)
         titleText = findViewById(R.id.titleText)
         counterText = findViewById(R.id.counterText)
-        resetButton = findViewById(R.id.resetButton)
+        lockButton = findViewById(R.id.lockButton)
 
-        resetButton.setOnClickListener {
+        lockButton.setOnClickListener {
             lifecycleScope.launch {
-                stateManager.reset()
+                stateManager.lock()
             }
         }
         
@@ -113,13 +113,13 @@ class MainActivity : ComponentActivity() {
             titleText.text = "🌿"
             statusText.text = "Timer Locked"
             timeText.visibility = TextView.VISIBLE
-            resetButton.visibility = View.VISIBLE
+            lockButton.visibility = View.GONE
             startPeriodicUpdate()
         } else {
             titleText.text = "🚬"
             statusText.text = "Timer Unlocked"
             timeText.visibility = View.GONE
-            resetButton.visibility = View.GONE
+            lockButton.visibility = View.VISIBLE
             stopPeriodicUpdate()
         }
     }
