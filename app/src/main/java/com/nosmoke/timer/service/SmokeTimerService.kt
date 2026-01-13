@@ -217,20 +217,24 @@ class SmokeTimerService : LifecycleService() {
             "Tap to lock"
         }
 
-        // Create COMPLETELY unique PendingIntent for notification tap
-        val uniqueRequestCode = System.currentTimeMillis().toInt()
+        // Create stable PendingIntent that updates properly for notification changes
         val lockIntent = Intent(this, NotificationActionReceiver::class.java).apply {
-            action = "ACTION_LOCK_FROM_NOTIFICATION_${uniqueRequestCode}"
-            putExtra("unique_id", uniqueRequestCode)
+            action = "ACTION_LOCK_FROM_NOTIFICATION"
+            // Add state info to distinguish the action
+            putExtra("notification_id", NOTIFICATION_ID)
+            putExtra("is_locked", isLocked)
         }
 
         val contentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            // KEY FIX: Use FLAG_UPDATE_CURRENT with stable requestCode
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         } else {
-            PendingIntent.FLAG_ONE_SHOT
+            PendingIntent.FLAG_UPDATE_CURRENT
         }
 
-        val contentPendingIntent = PendingIntent.getBroadcast(this, uniqueRequestCode, lockIntent, contentFlags)
+        // Use stable notification ID as requestCode so PendingIntent updates correctly
+        val contentPendingIntent = PendingIntent.getBroadcast(this, NOTIFICATION_ID, lockIntent, contentFlags)
+
         // Also create a content intent that just opens the app
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -239,7 +243,7 @@ class SmokeTimerService : LifecycleService() {
             this, 1003, openAppIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        Log.d("SmokeTimerService", "Created UNIQUE BROADCAST PendingIntent: $contentPendingIntent (requestCode=$uniqueRequestCode) for isLocked=$isLocked")
+        Log.d("SmokeTimerService", "Created STABLE BROADCAST PendingIntent: $contentPendingIntent (requestCode=$NOTIFICATION_ID) for isLocked=$isLocked")
 
         val smallIcon = if (isLocked) {
             R.drawable.ic_notification_leaf
