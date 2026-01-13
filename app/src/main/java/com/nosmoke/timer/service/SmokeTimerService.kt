@@ -87,13 +87,11 @@ class SmokeTimerService : LifecycleService() {
 
     private fun createNotification(isLocked: Boolean): Notification {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("NoSmoke")
+            .setContentTitle("Air Time")
             .setSmallIcon(if (isLocked) R.drawable.ic_notification_leaf else R.drawable.ic_notification_cigarette)
             .setOngoing(true)
 
-        if (isLocked) {
-            builder.setContentText("Timer locked")
-        } else {
+        if (!isLocked) {
             val intent = Intent(this, SmokeTimerService::class.java).apply {
                 action = "LOCK"
             }
@@ -108,8 +106,7 @@ class SmokeTimerService : LifecycleService() {
                 "Lock",
                 pendingIntent
             ).build()
-            builder.setContentText("Tap to lock")
-                .addAction(action)
+            builder.addAction(action)
         }
 
         return builder.build()

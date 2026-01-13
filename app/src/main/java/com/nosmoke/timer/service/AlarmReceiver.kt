@@ -15,7 +15,7 @@ class AlarmReceiver : BroadcastReceiver() {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == "com.nosmoke.timer.UNLOCK") {
+        if (intent.action == "com.airtime.timer.UNLOCK") {
             scope.launch {
                 val stateManager = StateManager(context)
                 val isLocked = stateManager.getIsLocked()

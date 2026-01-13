@@ -45,7 +45,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        const val ACTION_LOCK = "com.nosmoke.timer.ACTION_LOCK"
+        const val ACTION_LOCK = "com.airtime.timer.ACTION_LOCK"
     }
 }
 

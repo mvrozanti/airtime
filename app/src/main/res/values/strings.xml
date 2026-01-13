@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">NoSmoke Timer</string>
+    <string name="app_name">Air Time</string>
     <string name="notification_channel_id">smoke_timer_channel</string>
     <string name="notification_channel_name">Smoke Timer</string>
     <string name="notification_channel_description">Controls the smoke timer lock state</string>

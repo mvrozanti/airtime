@@ -1,6 +1,10 @@
 package com.nosmoke.timer.data
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.os.Build
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -11,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import android.util.Log
+import com.nosmoke.timer.service.AlarmReceiver
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "smoke_timer_state")
 
@@ -20,7 +25,7 @@ class StateManager(private val context: Context) {
         private val IS_LOCKED_KEY = booleanPreferencesKey("is_locked")
         private val LOCK_END_TIMESTAMP_KEY = longPreferencesKey("lock_end_timestamp")
         private val INCREMENT_KEY = longPreferencesKey("increment_seconds")
-        private const val BASE_LOCK_DURATION_MS = 15L * 1000  // 15 seconds for testing
+        private const val BASE_LOCK_DURATION_MS = 5L * 1000  // 5 seconds for testing
     }
 
     val isLocked: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -64,7 +69,25 @@ class StateManager(private val context: Context) {
             Log.e("StateManager", "LOCKING TIMER: DataStore values set")
         }
 
-        Log.e("StateManager", "TIMER LOCKED SUCCESSFULLY")
+        // Schedule alarm for auto-unlock
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = "com.airtime.timer.UNLOCK"
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, lockEndTime, pendingIntent)
+        } else {
+            alarmManager.setExact(AlarmManager.RTC_WAKEUP, lockEndTime, pendingIntent)
+        }
+
+        Log.e("StateManager", "TIMER LOCKED SUCCESSFULLY - Alarm scheduled for unlock")
     }
 
     suspend fun unlock() {
