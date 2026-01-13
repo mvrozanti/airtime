@@ -129,20 +129,26 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateUI(isLocked: Boolean, lockEndTimestamp: Long, increment: Long) {
+        Log.e("MainActivity", "UPDATE UI: isLocked=$isLocked, increment=$increment")
+
         // Update counter (increment represents number of cigarettes smoked)
         counterText.text = "Cigarettes smoked: $increment"
 
         if (isLocked) {
+            Log.e("MainActivity", "UPDATE UI: Setting LOCKED state")
             titleText.text = "🌿"
             statusText.text = "Timer Locked"
             timeText.visibility = TextView.VISIBLE
             startPeriodicUpdate()
         } else {
+            Log.e("MainActivity", "UPDATE UI: Setting UNLOCKED state")
             titleText.text = "🚬"
             statusText.text = "Timer Unlocked"
             timeText.visibility = View.GONE
             stopPeriodicUpdate()
         }
+
+        Log.e("MainActivity", "UPDATE UI: Completed")
     }
 
     private fun startPeriodicUpdate() {
