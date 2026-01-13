@@ -14,12 +14,17 @@ import androidx.lifecycle.lifecycleScope
 import com.nosmoke.timer.R
 import com.nosmoke.timer.data.StateManager
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 
 class SmokeTimerService : LifecycleService() {
 
     private lateinit var stateManager: StateManager
     private lateinit var notificationManager: NotificationManager
+    private var timeUpdateJob: Job? = null
 
     companion object {
         private const val NOTIFICATION_ID = 1
@@ -40,7 +45,7 @@ class SmokeTimerService : LifecycleService() {
         stateManager = StateManager(this)
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification(false))
+        startForeground(NOTIFICATION_ID, createNotification(false, 0L))
         observeState()
     }
 
@@ -63,8 +68,19 @@ class SmokeTimerService : LifecycleService() {
 
     private fun observeState() {
         lifecycleScope.launch {
-            stateManager.isLocked.collect { isLocked ->
-                updateNotification(isLocked)
+            combine(
+                stateManager.isLocked,
+                stateManager.lockEndTimestamp
+            ) { isLocked, lockEndTimestamp ->
+                Pair(isLocked, lockEndTimestamp)
+            }.collect { (isLocked, lockEndTimestamp) ->
+                if (isLocked) {
+                    startTimeUpdate()
+                    updateNotification(isLocked, lockEndTimestamp)
+                } else {
+                    stopTimeUpdate()
+                    updateNotification(isLocked, 0L)
+                }
             }
         }
     }
@@ -80,16 +96,42 @@ class SmokeTimerService : LifecycleService() {
         }
     }
 
-    private fun updateNotification(isLocked: Boolean) {
-        val notification = createNotification(isLocked)
+    private fun updateNotification(isLocked: Boolean, lockEndTimestamp: Long = 0L) {
+        val notification = createNotification(isLocked, lockEndTimestamp)
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun createNotification(isLocked: Boolean): Notification {
+    private fun startTimeUpdate() {
+        stopTimeUpdate()
+        timeUpdateJob = lifecycleScope.launch {
+            while (isActive) {
+                val isLocked = stateManager.getIsLocked()
+                if (!isLocked) {
+                    break
+                }
+                val currentTimestamp = stateManager.getLockEndTimestamp()
+                updateNotification(true, currentTimestamp)
+                delay(1000) // Update every second
+            }
+        }
+    }
+
+    private fun stopTimeUpdate() {
+        timeUpdateJob?.cancel()
+        timeUpdateJob = null
+    }
+
+    private fun createNotification(isLocked: Boolean, lockEndTimestamp: Long = 0L): Notification {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Air Time")
             .setSmallIcon(if (isLocked) R.drawable.ic_notification_leaf else R.drawable.ic_notification_cigarette)
             .setOngoing(true)
+            .setShowWhen(false)
+
+        if (isLocked && lockEndTimestamp > 0) {
+            val remainingTime = stateManager.getRemainingTimeFormatted(lockEndTimestamp)
+            builder.setContentText(remainingTime)
+        }
 
         if (!isLocked) {
             val intent = Intent(this, SmokeTimerService::class.java).apply {
