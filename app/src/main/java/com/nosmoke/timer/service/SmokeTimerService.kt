@@ -215,19 +215,21 @@ class SmokeTimerService : LifecycleService() {
             "Tap to lock"
         }
 
-        // Notification tap sends intent to service
-        val lockIntent = Intent(this, SmokeTimerService::class.java).apply {
-            action = "ACTION_LOCK_FROM_NOTIFICATION"
+        // Create COMPLETELY unique PendingIntent for notification tap
+        val uniqueRequestCode = System.currentTimeMillis().toInt()
+        val lockIntent = Intent(this, NotificationActionReceiver::class.java).apply {
+            action = "ACTION_LOCK_FROM_NOTIFICATION_${uniqueRequestCode}"
+            putExtra("unique_id", uniqueRequestCode)
         }
 
         val contentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
         } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
+            PendingIntent.FLAG_ONE_SHOT
         }
 
-        val contentPendingIntent = PendingIntent.getService(this, 1002, lockIntent, contentFlags)
-        Log.d("SmokeTimerService", "Created SERVICE PendingIntent: $contentPendingIntent for isLocked=$isLocked")
+        val contentPendingIntent = PendingIntent.getBroadcast(this, uniqueRequestCode, lockIntent, contentFlags)
+        Log.d("SmokeTimerService", "Created UNIQUE BROADCAST PendingIntent: $contentPendingIntent (requestCode=$uniqueRequestCode) for isLocked=$isLocked")
 
         val smallIcon = if (isLocked) {
             R.drawable.ic_notification_leaf
