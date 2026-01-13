@@ -15,6 +15,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import com.nosmoke.timer.MainActivity
 import com.nosmoke.timer.R
 import com.nosmoke.timer.data.StateManager
 import kotlinx.coroutines.flow.combine
