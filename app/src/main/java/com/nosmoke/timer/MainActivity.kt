@@ -113,13 +113,11 @@ class MainActivity : ComponentActivity() {
             titleText.text = "🌿"
             statusText.text = "Timer Locked"
             timeText.visibility = TextView.VISIBLE
-            lockButton.visibility = View.GONE
             startPeriodicUpdate()
         } else {
             titleText.text = "🚬"
             statusText.text = "Timer Unlocked"
             timeText.visibility = View.GONE
-            lockButton.visibility = View.VISIBLE
             stopPeriodicUpdate()
         }
     }
