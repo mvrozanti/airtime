@@ -65,6 +65,22 @@ class SmokeTimerService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d("SmokeTimerService", "onStartCommand: ${intent?.action}")
+
+        // Handle notification tap
+        if (intent?.action == "ACTION_LOCK_FROM_NOTIFICATION") {
+            Log.e("SmokeTimerService", "=== NOTIFICATION TAP DETECTED ===")
+            lifecycleScope.launch {
+                val isLocked = stateManager.getIsLocked()
+                Log.e("SmokeTimerService", "Current lock state: $isLocked")
+                if (!isLocked) {
+                    stateManager.lock()
+                    Log.e("SmokeTimerService", "Timer locked from notification!")
+                } else {
+                    Log.e("SmokeTimerService", "Timer already locked, ignoring notification tap")
+                }
+            }
+        }
+
         super.onStartCommand(intent, flags, startId)
         return START_STICKY
     }
@@ -199,10 +215,9 @@ class SmokeTimerService : LifecycleService() {
             "Tap to lock"
         }
 
-        // Notification tap opens main activity (temporary test)
-        val lockIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("from_notification", true)
+        // Notification tap sends intent to service
+        val lockIntent = Intent(this, SmokeTimerService::class.java).apply {
+            action = "ACTION_LOCK_FROM_NOTIFICATION"
         }
 
         val contentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -211,9 +226,8 @@ class SmokeTimerService : LifecycleService() {
             PendingIntent.FLAG_UPDATE_CURRENT
         }
 
-        // Try getActivity instead of getBroadcast
-        val contentPendingIntent = PendingIntent.getActivity(this, 1002, lockIntent, contentFlags)
-        Log.d("SmokeTimerService", "Created ACTIVITY PendingIntent: $contentPendingIntent for isLocked=$isLocked")
+        val contentPendingIntent = PendingIntent.getService(this, 1002, lockIntent, contentFlags)
+        Log.d("SmokeTimerService", "Created SERVICE PendingIntent: $contentPendingIntent for isLocked=$isLocked")
 
         val smallIcon = if (isLocked) {
             R.drawable.ic_notification_leaf
