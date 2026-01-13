@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -22,7 +23,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var statusText: TextView
     private lateinit var timeText: TextView
     private lateinit var titleText: TextView
-    private lateinit var lockButton: Button
+    private lateinit var counterText: TextView
     private lateinit var resetButton: Button
     private val updateHandler = Handler(Looper.getMainLooper())
     private var updateRunnable: Runnable? = null
@@ -46,17 +47,8 @@ class MainActivity : ComponentActivity() {
         statusText = findViewById(R.id.statusText)
         timeText = findViewById(R.id.timeText)
         titleText = findViewById(R.id.titleText)
-        lockButton = findViewById(R.id.lockButton)
+        counterText = findViewById(R.id.counterText)
         resetButton = findViewById(R.id.resetButton)
-
-        lockButton.setOnClickListener {
-            lifecycleScope.launch {
-                val isLocked = stateManager.getIsLocked()
-                if (!isLocked) {
-                    stateManager.lock()
-                }
-            }
-        }
 
         resetButton.setOnClickListener {
             lifecycleScope.launch {
@@ -103,29 +95,31 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             combine(
                 stateManager.isLocked,
-                stateManager.lockEndTimestamp
-            ) { isLocked, lockEndTimestamp ->
-                Pair(isLocked, lockEndTimestamp)
-            }.collect { (isLocked, lockEndTimestamp) ->
-                updateUI(isLocked, lockEndTimestamp)
+                stateManager.lockEndTimestamp,
+                stateManager.increment
+            ) { isLocked, lockEndTimestamp, increment ->
+                Triple(isLocked, lockEndTimestamp, increment)
+            }.collect { (isLocked, lockEndTimestamp, increment) ->
+                updateUI(isLocked, lockEndTimestamp, increment)
             }
         }
     }
 
-    private fun updateUI(isLocked: Boolean, lockEndTimestamp: Long) {
+    private fun updateUI(isLocked: Boolean, lockEndTimestamp: Long, increment: Long) {
+        // Update counter (increment represents number of cigarettes smoked)
+        counterText.text = "Cigarettes smoked: $increment"
+        
         if (isLocked) {
             titleText.text = "🌿"
             statusText.text = "Timer Locked"
             timeText.visibility = TextView.VISIBLE
-            lockButton.visibility = Button.GONE
-            resetButton.visibility = Button.VISIBLE
+            resetButton.visibility = View.VISIBLE
             startPeriodicUpdate()
         } else {
             titleText.text = "🚬"
             statusText.text = "Timer Unlocked"
-            timeText.visibility = TextView.GONE
-            lockButton.visibility = Button.VISIBLE
-            resetButton.visibility = Button.GONE
+            timeText.visibility = View.GONE
+            resetButton.visibility = View.GONE
             stopPeriodicUpdate()
         }
     }

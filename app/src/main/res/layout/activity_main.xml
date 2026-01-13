@@ -5,7 +5,7 @@
     android:orientation="vertical"
     android:gravity="center"
     android:padding="32dp"
-    android:background="#F5F5F5">
+    android:background="@drawable/bg_main_activity">
 
     <TextView
         android:id="@+id/titleText"
@@ -14,7 +14,8 @@
         android:textSize="32sp"
         android:textStyle="bold"
         android:layout_marginBottom="16dp"
-        android:text="🚬" />
+        android:text="🚬"
+        android:textColor="#FFFFFF" />
 
     <TextView
         android:id="@+id/statusText"
@@ -22,7 +23,8 @@
         android:layout_height="wrap_content"
         android:textSize="24sp"
         android:layout_marginBottom="32dp"
-        android:text="Timer Unlocked" />
+        android:text="Timer Unlocked"
+        android:textColor="#E0E0E0" />
 
     <TextView
         android:id="@+id/timeText"
@@ -31,16 +33,17 @@
         android:textSize="48sp"
         android:textStyle="bold"
         android:text="--:--"
-        android:visibility="gone" />
+        android:visibility="gone"
+        android:textColor="#FFFFFF" />
 
-    <Button
-        android:id="@+id/lockButton"
+    <TextView
+        android:id="@+id/counterText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Lock Timer"
+        android:textSize="20sp"
         android:layout_marginTop="32dp"
-        android:textSize="18sp"
-        android:padding="16dp" />
+        android:text="Cigarettes smoked: 0"
+        android:textColor="#C0C0C0" />
 
     <Button
         android:id="@+id/resetButton"

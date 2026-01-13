@@ -10,6 +10,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import android.util.Log
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "smoke_timer_state")
 
@@ -19,8 +20,7 @@ class StateManager(private val context: Context) {
         private val IS_LOCKED_KEY = booleanPreferencesKey("is_locked")
         private val LOCK_END_TIMESTAMP_KEY = longPreferencesKey("lock_end_timestamp")
         private val INCREMENT_KEY = longPreferencesKey("increment_seconds")
-        // Testing: 5 seconds (change back to 40L * 60 * 1000 for production)
-        private const val BASE_LOCK_DURATION_MS = 5L * 1000
+        private const val BASE_LOCK_DURATION_MS = 5L * 1000  // 5 seconds (testing)
     }
 
     val isLocked: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -53,14 +53,19 @@ class StateManager(private val context: Context) {
         val lockEndTime = System.currentTimeMillis() + lockDuration
         val newIncrement = currentIncrement + 1
 
+        Log.d("StateManager", "Locking timer: increment=$currentIncrement, duration=$lockDuration ms, endTime=$lockEndTime")
+
         context.dataStore.edit { preferences ->
             preferences[IS_LOCKED_KEY] = true
             preferences[LOCK_END_TIMESTAMP_KEY] = lockEndTime
             preferences[INCREMENT_KEY] = newIncrement
         }
+
+        Log.d("StateManager", "Timer locked successfully")
     }
 
     suspend fun unlock() {
+        Log.d("StateManager", "Unlocking timer")
         context.dataStore.edit { preferences ->
             preferences[IS_LOCKED_KEY] = false
         }

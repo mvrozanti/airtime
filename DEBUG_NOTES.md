@@ -33,11 +33,31 @@ Notification lock button requires two clicks - first click does nothing, second 
 - Stopped service, killed app process, cleared data, uninstalled, reinstalled
 - Status: SUCCESS - After fresh install, notification lock button works on first click!
 
+### Attempt 8: Cancel notification before updating to clear cached PendingIntent
+- Added `notificationManager.cancel(NOTIFICATION_ID)` before `notify()` in `updateNotification()`
+- Theory: Canceling the notification should clear any cached PendingIntent state
+- Status: **FAILED** - Double-click bug still persists
+
+### Attempt 9: Revert notification cancel change
+- Removed the `notificationManager.cancel()` call to go back to previous working state
+- Status: **FAILED** - Double-click bug STILL persists even after reverting
+
+### Attempt 10: Test cleanup order hypothesis
+- Theory: The order of cleanup commands might matter
+- Note: Attempt 7 was marked as SUCCESS with order: force-stop → clear → uninstall → install
+- Current tests needed: Verify exact order that worked in Attempt 7
+- Status: **TESTING** - Need to verify if order matters
+
 ## Solution
-The final working solution:
+**NO KNOWN WORKING SOLUTION** - The double-click bug is currently unresolved. All attempts have failed:
 - BroadcastReceiver uses `runBlocking` for synchronous state changes
 - PendingIntent uses unique request code `LOCK_ACTION_REQUEST_CODE` (1002)
-- Fresh install was necessary to clear any cached/stale state
+- Various cleanup methods (minimal, full) have been tried
+- Notification cancellation has been tried and reverted
+- **Current state: Bug persists regardless of approach**
+
+## Current Status
+**The double-click bug is persistent and unresolved.** Multiple approaches have been tried including notification cancellation, reverting changes, different cleanup methods, but the notification still requires two clicks to lock. This appears to be a deep Android system-level issue that may require a completely different architectural approach.
 
 ## Important Note: App Reinstall Bug
 **The double-click bug occurs after every app reinstall.** To fix it, you must perform a full cleanup before reinstalling:

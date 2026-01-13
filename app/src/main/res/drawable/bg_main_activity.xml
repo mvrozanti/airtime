@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Base gradient: dark green to black -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="135"
+                android:startColor="#0A2E0A"
+                android:centerColor="#1A4A1A"
+                android:endColor="#000000"
+                android:type="linear" />
+        </shape>
+    </item>
+    
+    <!-- Overlay gradient for depth -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="45"
+                android:startColor="#00000000"
+                android:centerColor="#1A4A1A30"
+                android:endColor="#00000000"
+                android:type="linear" />
+        </shape>
+    </item>
+    
+    <!-- Subtle radial gradient for "spot" effect -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:centerX="0.3"
+                android:centerY="0.7"
+                android:startColor="#2A6A2A40"
+                android:centerColor="#1A4A1A20"
+                android:endColor="#00000000"
+                android:type="radial"
+                android:gradientRadius="70%p" />
+        </shape>
+    </item>
+    
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:centerX="0.7"
+                android:centerY="0.3"
+                android:startColor="#1A4A1A30"
+                android:centerColor="#0A2E0A20"
+                android:endColor="#00000000"
+                android:type="radial"
+                android:gradientRadius="60%p" />
+        </shape>
+    </item>
+</layer-list>
+
+
