@@ -208,11 +208,11 @@ class SmokeTimerService : LifecycleService() {
         Log.d("SmokeTimerService", "Creating PendingIntent for notification, isLocked: $isLocked")
 
         val contentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
         } else {
-            PendingIntent.FLAG_CANCEL_CURRENT
+            PendingIntent.FLAG_ONE_SHOT
         }
-        val contentPendingIntent = PendingIntent.getBroadcast(this, 0, lockIntent, contentFlags)
+        val contentPendingIntent = PendingIntent.getBroadcast(this, System.currentTimeMillis().toInt(), lockIntent, contentFlags)
 
         val smallIcon = if (isLocked) {
             R.drawable.ic_notification_leaf
