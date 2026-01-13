@@ -176,6 +176,8 @@ class SmokeTimerService : LifecycleService() {
     private fun updateNotification(isLocked: Boolean, lockEndTimestamp: Long) {
         try {
             Log.d("SmokeTimerService", "Updating notification, isLocked: $isLocked")
+            // Cancel existing notification before updating to clear any cached PendingIntent
+            notificationManager.cancel(NOTIFICATION_ID)
             val notification = createNotification(isLocked, lockEndTimestamp)
             notificationManager.notify(NOTIFICATION_ID, notification)
         } catch (e: Exception) {
@@ -208,9 +210,9 @@ class SmokeTimerService : LifecycleService() {
         Log.d("SmokeTimerService", "Creating PendingIntent for notification, isLocked: $isLocked")
 
         val contentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         } else {
-            PendingIntent.FLAG_ONE_SHOT
+            PendingIntent.FLAG_UPDATE_CURRENT
         }
         val contentPendingIntent = PendingIntent.getBroadcast(this, System.currentTimeMillis().toInt(), lockIntent, contentFlags)
 
