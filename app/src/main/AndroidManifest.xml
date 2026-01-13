@@ -21,11 +21,11 @@
         android:theme="@android:style/Theme.Translucent.NoTitleBar"
         tools:targetApi="31">
         
-        <!-- Main Activity (minimal launcher) -->
+        <!-- Main Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -55,6 +55,12 @@
         <!-- Alarm Receiver -->
         <receiver
             android:name=".service.AlarmReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- Notification Action Receiver -->
+        <receiver
+            android:name=".service.NotificationActionReceiver"
             android:enabled="true"
             android:exported="false" />
 

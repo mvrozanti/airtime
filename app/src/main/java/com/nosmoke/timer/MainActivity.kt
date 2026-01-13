@@ -3,18 +3,36 @@ package com.nosmoke.timer
 import android.Manifest
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.widget.Button
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.lifecycleScope
+import com.nosmoke.timer.data.StateManager
 import com.nosmoke.timer.service.SmokeTimerService
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    private lateinit var stateManager: StateManager
+    private lateinit var statusText: TextView
+    private lateinit var timeText: TextView
+    private lateinit var titleText: TextView
+    private lateinit var lockButton: Button
+    private lateinit var resetButton: Button
+    private val updateHandler = Handler(Looper.getMainLooper())
+    private var updateRunnable: Runnable? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
         if (isGranted) {
-            startServiceAndFinish()
+            startService()
+            observeState()
         } else {
             finish()
         }
@@ -22,6 +40,29 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        
+        stateManager = StateManager(this)
+        statusText = findViewById(R.id.statusText)
+        timeText = findViewById(R.id.timeText)
+        titleText = findViewById(R.id.titleText)
+        lockButton = findViewById(R.id.lockButton)
+        resetButton = findViewById(R.id.resetButton)
+
+        lockButton.setOnClickListener {
+            lifecycleScope.launch {
+                val isLocked = stateManager.getIsLocked()
+                if (!isLocked) {
+                    stateManager.lock()
+                }
+            }
+        }
+
+        resetButton.setOnClickListener {
+            lifecycleScope.launch {
+                stateManager.reset()
+            }
+        }
         
         // Request notification permission for Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -35,12 +76,86 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        startServiceAndFinish()
+        startService()
+        observeState()
     }
 
-    private fun startServiceAndFinish() {
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch {
+            val isLocked = stateManager.getIsLocked()
+            if (isLocked) {
+                startPeriodicUpdate()
+            }
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopPeriodicUpdate()
+    }
+
+    private fun startService() {
         SmokeTimerService.start(this)
-        finish()
     }
-}
 
+    private fun observeState() {
+        lifecycleScope.launch {
+            combine(
+                stateManager.isLocked,
+                stateManager.lockEndTimestamp
+            ) { isLocked, lockEndTimestamp ->
+                Pair(isLocked, lockEndTimestamp)
+            }.collect { (isLocked, lockEndTimestamp) ->
+                updateUI(isLocked, lockEndTimestamp)
+            }
+        }
+    }
+
+    private fun updateUI(isLocked: Boolean, lockEndTimestamp: Long) {
+        if (isLocked) {
+            titleText.text = "🌿"
+            statusText.text = "Timer Locked"
+            timeText.visibility = TextView.VISIBLE
+            lockButton.visibility = Button.GONE
+            resetButton.visibility = Button.VISIBLE
+            startPeriodicUpdate()
+        } else {
+            titleText.text = "🚬"
+            statusText.text = "Timer Unlocked"
+            timeText.visibility = TextView.GONE
+            lockButton.visibility = Button.VISIBLE
+            resetButton.visibility = Button.GONE
+            stopPeriodicUpdate()
+        }
+    }
+
+    private fun startPeriodicUpdate() {
+        stopPeriodicUpdate()
+        var runnable: Runnable? = null
+        runnable = Runnable {
+            lifecycleScope.launch {
+                val isLocked = stateManager.getIsLocked()
+                val lockEndTimestamp = stateManager.getLockEndTimestamp()
+                if (isLocked && lockEndTimestamp > 0) {
+                    val remaining = stateManager.getRemainingTimeFormatted(lockEndTimestamp)
+                    timeText.text = remaining
+                    val remainingMs = stateManager.getRemainingTimeMillis(lockEndTimestamp)
+                    if (remainingMs > 0) {
+                        runnable?.let { updateHandler.postDelayed(it, 1000) }
+                    } else {
+                        stateManager.unlock()
+                    }
+                }
+            }
+        }
+        updateRunnable = runnable
+        updateHandler.post(runnable)
+    }
+
+    private fun stopPeriodicUpdate() {
+        updateRunnable?.let { updateHandler.removeCallbacks(it) }
+        updateRunnable = null
+    }
+
+}

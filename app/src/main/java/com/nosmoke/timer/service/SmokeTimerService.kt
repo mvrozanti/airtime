@@ -30,12 +30,13 @@ class SmokeTimerService : LifecycleService() {
     companion object {
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "smoke_timer_channel"
-        private const val ACTION_LOCK = "com.nosmoke.timer.ACTION_LOCK"
-        private const val ACTION_SHOW_TIME = "com.nosmoke.timer.ACTION_SHOW_TIME"
         private const val ALARM_REQUEST_CODE = 1001
+        private const val LOCK_ACTION_REQUEST_CODE = 1002
 
-        fun start(context: Context) {
-            val intent = Intent(context, SmokeTimerService::class.java)
+        fun start(context: Context, action: String? = null) {
+            val intent = Intent(context, SmokeTimerService::class.java).apply {
+                this.action = action
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -62,12 +63,6 @@ class SmokeTimerService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        
-        when (intent?.action) {
-            ACTION_LOCK -> handleLockAction()
-            ACTION_SHOW_TIME -> handleShowTimeAction()
-        }
-
         return START_STICKY
     }
 
@@ -126,6 +121,7 @@ class SmokeTimerService : LifecycleService() {
         }
     }
 
+
     private fun handleLockAction() {
         lifecycleScope.launch {
             val isLocked = stateManager.getIsLocked()
@@ -135,16 +131,6 @@ class SmokeTimerService : LifecycleService() {
         }
     }
 
-    private fun handleShowTimeAction() {
-        lifecycleScope.launch {
-            val isLocked = stateManager.getIsLocked()
-            val lockEndTimestamp = stateManager.getLockEndTimestamp()
-            if (isLocked && lockEndTimestamp > 0) {
-                val remaining = stateManager.getRemainingTimeFormatted(lockEndTimestamp)
-                updateNotification(isLocked, lockEndTimestamp)
-            }
-        }
-    }
 
     private fun scheduleUnlockAlarm(lockEndTimestamp: Long) {
         val intent = Intent(this, AlarmReceiver::class.java).apply {
@@ -203,15 +189,14 @@ class SmokeTimerService : LifecycleService() {
             getString(R.string.notification_title_unlocked)
         }
 
-        val text = if (isLocked && lockEndTimestamp > 0) {
-            val remaining = stateManager.getRemainingTimeFormatted(lockEndTimestamp)
-            getString(R.string.notification_text_locked, remaining)
+        val text = if (isLocked) {
+            "Tap to view timer"
         } else {
             getString(R.string.notification_text_unlocked)
         }
 
-        val lockIntent = Intent(this, SmokeTimerService::class.java).apply {
-            action = ACTION_LOCK
+        val lockIntent = Intent(this, NotificationActionReceiver::class.java).apply {
+            action = NotificationActionReceiver.ACTION_LOCK
         }
         
         val lockFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -220,13 +205,7 @@ class SmokeTimerService : LifecycleService() {
             PendingIntent.FLAG_UPDATE_CURRENT
         }
         
-        val lockPendingIntent = PendingIntent.getService(this, 0, lockIntent, lockFlags)
-
-        val showTimeIntent = Intent(this, SmokeTimerService::class.java).apply {
-            action = ACTION_SHOW_TIME
-        }
-        
-        val showTimePendingIntent = PendingIntent.getService(this, 1, showTimeIntent, lockFlags)
+        val lockPendingIntent = PendingIntent.getBroadcast(this, LOCK_ACTION_REQUEST_CODE, lockIntent, lockFlags)
 
         val contentIntent = Intent(this, MainActivity::class.java)
         val contentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -236,10 +215,16 @@ class SmokeTimerService : LifecycleService() {
         }
         val contentPendingIntent = PendingIntent.getActivity(this, 2, contentIntent, contentFlags)
 
+        val smallIcon = if (isLocked) {
+            R.drawable.ic_notification_leaf
+        } else {
+            R.drawable.ic_notification_cigarette
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(smallIcon)
             .setContentIntent(contentPendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -252,12 +237,6 @@ class SmokeTimerService : LifecycleService() {
                         android.R.drawable.ic_lock_lock,
                         getString(R.string.action_lock),
                         lockPendingIntent
-                    )
-                } else {
-                    addAction(
-                        android.R.drawable.ic_menu_recent_history,
-                        getString(R.string.action_show_time),
-                        showTimePendingIntent
                     )
                 }
             }

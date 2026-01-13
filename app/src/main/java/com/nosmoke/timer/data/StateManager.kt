@@ -19,8 +19,8 @@ class StateManager(private val context: Context) {
         private val IS_LOCKED_KEY = booleanPreferencesKey("is_locked")
         private val LOCK_END_TIMESTAMP_KEY = longPreferencesKey("lock_end_timestamp")
         private val INCREMENT_KEY = longPreferencesKey("increment_seconds")
-        private const val BASE_LOCK_DURATION_MINUTES = 40L
-        private const val BASE_LOCK_DURATION_MS = BASE_LOCK_DURATION_MINUTES * 60 * 1000
+        // Testing: 5 seconds (change back to 40L * 60 * 1000 for production)
+        private const val BASE_LOCK_DURATION_MS = 5L * 1000
     }
 
     val isLocked: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -68,6 +68,14 @@ class StateManager(private val context: Context) {
 
     suspend fun resetIncrement() {
         context.dataStore.edit { preferences ->
+            preferences[INCREMENT_KEY] = 0L
+        }
+    }
+
+    suspend fun reset() {
+        context.dataStore.edit { preferences ->
+            preferences[IS_LOCKED_KEY] = false
+            preferences[LOCK_END_TIMESTAMP_KEY] = 0L
             preferences[INCREMENT_KEY] = 0L
         }
     }
