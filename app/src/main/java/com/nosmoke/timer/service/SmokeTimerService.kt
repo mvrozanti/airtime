@@ -198,9 +198,10 @@ class SmokeTimerService : LifecycleService() {
             "Tap to lock"
         }
 
-        // Notification tap locks (only when unlocked, does nothing when locked)
-        val lockIntent = Intent("com.nosmoke.timer.ACTION_LOCK").apply {
-            setClass(this@SmokeTimerService, NotificationActionReceiver::class.java)
+        // Notification tap opens main activity (temporary test)
+        val lockIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("from_notification", true)
         }
 
         val contentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -210,8 +211,8 @@ class SmokeTimerService : LifecycleService() {
         }
 
         // Try getActivity instead of getBroadcast
-        val contentPendingIntent = PendingIntent.getBroadcast(this, 1002, lockIntent, contentFlags)
-        Log.d("SmokeTimerService", "Created BROADCAST PendingIntent: $contentPendingIntent for isLocked=$isLocked")
+        val contentPendingIntent = PendingIntent.getActivity(this, 1002, lockIntent, contentFlags)
+        Log.d("SmokeTimerService", "Created ACTIVITY PendingIntent: $contentPendingIntent for isLocked=$isLocked")
 
         val smallIcon = if (isLocked) {
             R.drawable.ic_notification_leaf
