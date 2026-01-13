@@ -64,11 +64,13 @@ class SmokeTimerService : LifecycleService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d("SmokeTimerService", "onStartCommand: ${intent?.action}")
+        val action = intent?.action
+        Log.d("SmokeTimerService", "onStartCommand: $action")
 
-        // Handle notification tap
-        if (intent?.action == "ACTION_LOCK_FROM_NOTIFICATION") {
-            Log.e("SmokeTimerService", "=== NOTIFICATION TAP DETECTED ===")
+        // Handle notification tap - check for our unique action
+        if (action?.startsWith("ACTION_LOCK_FROM_NOTIFICATION_") == true) {
+            Log.e("SmokeTimerService", "=== NOTIFICATION TAP DETECTED VIA SERVICE ===")
+            Log.e("SmokeTimerService", "Action: $action")
             lifecycleScope.launch {
                 val isLocked = stateManager.getIsLocked()
                 Log.e("SmokeTimerService", "Current lock state: $isLocked")
