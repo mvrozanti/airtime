@@ -43,6 +43,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Check if we were launched from notification
+        val fromNotification = intent?.getBooleanExtra("from_notification", false)
+        Log.e("MainActivity", "onCreate: from_notification = $fromNotification")
+
         stateManager = StateManager(this)
         statusText = findViewById(R.id.statusText)
         timeText = findViewById(R.id.timeText)
@@ -74,6 +78,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        Log.e("MainActivity", "onResume called")
         lifecycleScope.launch {
             val isLocked = stateManager.getIsLocked()
             if (isLocked) {
