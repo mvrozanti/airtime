@@ -46,10 +46,10 @@
         android:textColor="#C0C0C0" />
 
     <Button
-        android:id="@+id/resetButton"
+        android:id="@+id/lockButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Reset Timer"
+        android:text="Lock Timer"
         android:layout_marginTop="16dp"
         android:textSize="18sp"
         android:padding="16dp" />
