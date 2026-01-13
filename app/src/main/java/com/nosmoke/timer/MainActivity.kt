@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
         setContentView(R.layout.activity_main)
 
         // Check if we were launched from notification
-        val fromNotification = intent?.getBooleanExtra("from_notification", false)
+        val fromNotification = intent?.getBooleanExtra("from_notification", false) ?: false
         Log.e("MainActivity", "onCreate: from_notification = $fromNotification")
 
         if (fromNotification) {
