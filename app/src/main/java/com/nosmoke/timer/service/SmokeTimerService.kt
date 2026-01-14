@@ -90,7 +90,7 @@ class SmokeTimerService : LifecycleService() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Timer",
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_LOW
             )
             notificationManager.createNotificationChannel(channel)
         }
@@ -126,6 +126,7 @@ class SmokeTimerService : LifecycleService() {
             .setSmallIcon(if (isLocked) R.drawable.ic_notification_leaf else R.drawable.ic_notification_cigarette)
             .setOngoing(true)
             .setShowWhen(false)
+            .setOnlyAlertOnce(true)
 
         if (isLocked && lockEndTimestamp > 0) {
             val remainingTime = stateManager.getRemainingTimeFormatted(lockEndTimestamp)
