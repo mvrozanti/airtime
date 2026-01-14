@@ -26,7 +26,12 @@ class StateManager(private val context: Context) {
         private val IS_LOCKED_KEY = booleanPreferencesKey("is_locked")
         private val LOCK_END_TIMESTAMP_KEY = longPreferencesKey("lock_end_timestamp")
         private val INCREMENT_KEY = longPreferencesKey("increment_seconds")
-        private const val BASE_LOCK_DURATION_MS = 5L * 1000  // 5 seconds for testing
+        private val BASE_DURATION_MINUTES_KEY = longPreferencesKey("base_duration_minutes")
+        private val INCREMENT_STEP_SECONDS_KEY = longPreferencesKey("increment_step_seconds")
+        
+        // Default values
+        private const val DEFAULT_BASE_DURATION_MINUTES = 40L
+        private const val DEFAULT_INCREMENT_STEP_SECONDS = 1L
     }
 
     val isLocked: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -52,10 +57,61 @@ class StateManager(private val context: Context) {
     suspend fun getIncrement(): Long {
         return context.dataStore.data.map { it[INCREMENT_KEY] ?: 0L }.first()
     }
+    
+    suspend fun getBaseDurationMinutes(): Long {
+        // Try Abacus first
+        val abacusValue = AbacusService.getValue("base_duration_minutes")
+        if (abacusValue != null) {
+            // Cache in local storage
+            context.dataStore.edit { preferences ->
+                preferences[BASE_DURATION_MINUTES_KEY] = abacusValue
+            }
+            return abacusValue
+        }
+        // Fallback to local storage
+        val localValue = context.dataStore.data.map { it[BASE_DURATION_MINUTES_KEY] }.first()
+        return localValue ?: DEFAULT_BASE_DURATION_MINUTES
+    }
+    
+    suspend fun getIncrementStepSeconds(): Long {
+        // Try Abacus first
+        val abacusValue = AbacusService.getValue("increment_step_seconds")
+        if (abacusValue != null) {
+            // Cache in local storage
+            context.dataStore.edit { preferences ->
+                preferences[INCREMENT_STEP_SECONDS_KEY] = abacusValue
+            }
+            return abacusValue
+        }
+        // Fallback to local storage
+        val localValue = context.dataStore.data.map { it[INCREMENT_STEP_SECONDS_KEY] }.first()
+        return localValue ?: DEFAULT_INCREMENT_STEP_SECONDS
+    }
+    
+    suspend fun setBaseDurationMinutes(minutes: Long) {
+        // Store to Abacus (fire and forget)
+        AbacusService.setValue("base_duration_minutes", minutes)
+        // Also store locally as cache
+        context.dataStore.edit { preferences ->
+            preferences[BASE_DURATION_MINUTES_KEY] = minutes
+        }
+    }
+    
+    suspend fun setIncrementStepSeconds(seconds: Long) {
+        // Store to Abacus (fire and forget)
+        AbacusService.setValue("increment_step_seconds", seconds)
+        // Also store locally as cache
+        context.dataStore.edit { preferences ->
+            preferences[INCREMENT_STEP_SECONDS_KEY] = seconds
+        }
+    }
 
     suspend fun lock() {
         val currentIncrement = getIncrement()
-        val lockDuration = BASE_LOCK_DURATION_MS + (currentIncrement * 1000)
+        val baseDurationMinutes = getBaseDurationMinutes()
+        val incrementStepSeconds = getIncrementStepSeconds()
+        val baseDurationMs = baseDurationMinutes * 60 * 1000
+        val lockDuration = baseDurationMs + (currentIncrement * incrementStepSeconds * 1000)
         val lockEndTime = System.currentTimeMillis() + lockDuration
         val newIncrement = currentIncrement + 1
 

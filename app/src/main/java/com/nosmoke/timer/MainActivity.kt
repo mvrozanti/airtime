@@ -9,6 +9,8 @@ import android.view.View
 import android.util.Log
 import android.widget.Button
 import android.widget.TextView
+import android.widget.NumberPicker
+import android.app.AlertDialog
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
@@ -26,6 +28,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var titleText: TextView
     private lateinit var counterText: TextView
     private lateinit var lockButton: Button
+    private lateinit var baseDurationDisplay: TextView
+    private lateinit var incrementStepDisplay: TextView
     private val updateHandler = Handler(Looper.getMainLooper())
     private var updateRunnable: Runnable? = null
 
@@ -44,6 +48,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        stateManager = StateManager(this)
+        
         // Check if we were launched from notification
         val fromNotification = intent?.getBooleanExtra("from_notification", false) ?: false
         Log.e("MainActivity", "onCreate: from_notification = $fromNotification")
@@ -54,13 +60,30 @@ class MainActivity : ComponentActivity() {
                 stateManager.lock()
             }
         }
-
-        stateManager = StateManager(this)
         statusText = findViewById(R.id.statusText)
         timeText = findViewById(R.id.timeText)
         titleText = findViewById(R.id.titleText)
         counterText = findViewById(R.id.counterText)
         lockButton = findViewById(R.id.lockButton)
+        baseDurationDisplay = findViewById(R.id.baseDurationDisplay)
+        incrementStepDisplay = findViewById(R.id.incrementStepDisplay)
+        
+        // Load current configuration values
+        lifecycleScope.launch {
+            val baseDuration = stateManager.getBaseDurationMinutes()
+            val incrementStep = stateManager.getIncrementStepSeconds()
+            baseDurationDisplay.text = baseDuration.toString()
+            incrementStepDisplay.text = incrementStep.toString()
+        }
+        
+        // Setup click listeners to show NumberPicker dialogs
+        baseDurationDisplay.setOnClickListener {
+            showBaseDurationPicker()
+        }
+        
+        incrementStepDisplay.setOnClickListener {
+            showIncrementStepPicker()
+        }
 
         lockButton.setOnClickListener {
             Log.e("MainActivity", "=== LOCK BUTTON CLICKED ===")
@@ -177,6 +200,58 @@ class MainActivity : ComponentActivity() {
     private fun stopPeriodicUpdate() {
         updateRunnable?.let { updateHandler.removeCallbacks(it) }
         updateRunnable = null
+    }
+
+    private fun showBaseDurationPicker() {
+        lifecycleScope.launch {
+            val currentValue = stateManager.getBaseDurationMinutes().toInt()
+            
+            val picker = NumberPicker(this@MainActivity).apply {
+                minValue = 1
+                maxValue = 600  // 10 hours max
+                value = currentValue.coerceIn(1, 600)
+                wrapSelectorWheel = false
+            }
+            
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Base Duration (minutes)")
+                .setView(picker)
+                .setPositiveButton("OK") { _, _ ->
+                    val selectedValue = picker.value.toLong()
+                    lifecycleScope.launch {
+                        stateManager.setBaseDurationMinutes(selectedValue)
+                        baseDurationDisplay.text = selectedValue.toString()
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+    }
+
+    private fun showIncrementStepPicker() {
+        lifecycleScope.launch {
+            val currentValue = stateManager.getIncrementStepSeconds().toInt()
+            
+            val picker = NumberPicker(this@MainActivity).apply {
+                minValue = 1
+                maxValue = 60  // 1 minute max
+                value = currentValue.coerceIn(1, 60)
+                wrapSelectorWheel = false
+            }
+            
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Increment Step (seconds)")
+                .setView(picker)
+                .setPositiveButton("OK") { _, _ ->
+                    val selectedValue = picker.value.toLong()
+                    lifecycleScope.launch {
+                        stateManager.setIncrementStepSeconds(selectedValue)
+                        incrementStepDisplay.text = selectedValue.toString()
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
     }
 
 }
