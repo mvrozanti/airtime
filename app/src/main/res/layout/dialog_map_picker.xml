@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#000000">
+    android:background="@color/background">
 
-    <!-- OpenStreetMap MapView -->
+    <!-- Map View -->
     <org.osmdroid.views.MapView
         android:id="@+id/map_view"
         android:layout_width="match_parent"
@@ -13,79 +14,104 @@
         android:layout_weight="1" />
 
     <!-- Controls Panel -->
-    <LinearLayout
+    <androidx.cardview.widget.CardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp"
-        android:background="#1E1E1E">
+        app:cardBackgroundColor="@color/surface"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="8dp"
+        app:contentPaddingTop="0dp"
+        app:contentPaddingBottom="0dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Tap on map to select location"
-            android:textSize="14sp"
-            android:textColor="#C0C0C0"
-            android:layout_marginBottom="8dp" />
-
-        <!-- Radius Selection -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="16dp">
+            android:orientation="vertical"
+            android:padding="20dp">
 
             <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Radius:"
-                android:textSize="16sp"
-                android:textColor="#E0E0E0" />
-
-            <TextView
-                android:id="@+id/radiusText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="100m"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:textColor="#FFFFFF"
-                android:minWidth="80dp"
-                android:gravity="center"
-                android:layout_marginEnd="16dp" />
+                android:text="Tap on map to select location"
+                android:textSize="14sp"
+                android:textColor="@color/text_secondary"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Radius Selection -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Radius"
+                    android:textSize="16sp"
+                    android:textColor="@color/text_primary" />
+
+                <TextView
+                    android:id="@+id/radiusText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="100m"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/primary"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="8dp"
+                    android:background="@drawable/setting_value_background"
+                    android:minWidth="80dp"
+                    android:gravity="center"
+                    android:layout_marginEnd="16dp" />
+            </LinearLayout>
+
+            <SeekBar
+                android:id="@+id/radiusSlider"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="4990"
+                android:progress="90"
+                android:layout_marginBottom="20dp"
+                android:progressTint="@color/primary"
+                android:thumbTint="@color/primary" />
+
+            <!-- Buttons -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="end">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/cancelButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Cancel"
+                    android:textSize="14sp"
+                    android:paddingHorizontal="24dp"
+                    android:layout_marginEnd="8dp"
+                    app:backgroundTint="@color/surface"
+                    app:strokeColor="@color/text_tertiary"
+                    app:strokeWidth="1dp"
+                    app:cornerRadius="8dp"
+                    style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/selectButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Select Location"
+                    android:textSize="14sp"
+                    android:paddingHorizontal="24dp"
+                    app:backgroundTint="@color/primary"
+                    app:cornerRadius="8dp"
+                    style="@style/Widget.Material3.Button" />
+            </LinearLayout>
         </LinearLayout>
-
-        <SeekBar
-            android:id="@+id/radiusSlider"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:max="4990"
-            android:progress="90"
-            android:layout_marginBottom="16dp" />
-
-        <!-- Buttons -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="end">
-
-            <Button
-                android:id="@+id/cancelButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Cancel"
-                android:layout_marginEnd="8dp" />
-
-            <Button
-                android:id="@+id/selectButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Select Location" />
-        </LinearLayout>
-    </LinearLayout>
+    </androidx.cardview.widget.CardView>
 
 </LinearLayout>
-

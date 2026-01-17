@@ -47,6 +47,9 @@ dependencies {
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
     implementation 'androidx.lifecycle:lifecycle-service:2.7.0'
     
+    // Material Design 3
+    implementation 'com.google.android.material:material:1.11.0'
+    
     // DataStore for state management
     implementation 'androidx.datastore:datastore-preferences:1.0.0'
     
