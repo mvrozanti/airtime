@@ -12,6 +12,7 @@ import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.nosmoke.timer.R
+import com.nosmoke.timer.data.Place
 import com.nosmoke.timer.data.StateManager
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -38,13 +39,13 @@ class ConfigFragment : Fragment() {
     private lateinit var timeText: TextView
     private lateinit var titleText: TextView
     private lateinit var counterText: TextView
-    private lateinit var bufferText: TextView
-    private lateinit var bufferTimeText: TextView
     private lateinit var lockButton: Button
     private lateinit var baseDurationDisplay: TextView
     private lateinit var incrementStepDisplay: TextView
     private lateinit var currentPlaceDisplay: TextView
     private lateinit var resetButton: Button
+    private lateinit var lockConfigButton: Button
+    private lateinit var configLockStatusText: TextView
     private val updateHandler = Handler(Looper.getMainLooper())
     private var updateRunnable: Runnable? = null
     
@@ -63,13 +64,13 @@ class ConfigFragment : Fragment() {
         timeText = view.findViewById(R.id.timeText)
         titleText = view.findViewById(R.id.titleText)
         counterText = view.findViewById(R.id.counterText)
-        bufferText = view.findViewById(R.id.bufferText)
-        bufferTimeText = view.findViewById(R.id.bufferTimeText)
         lockButton = view.findViewById(R.id.lockButton)
         baseDurationDisplay = view.findViewById(R.id.baseDurationDisplay)
         incrementStepDisplay = view.findViewById(R.id.incrementStepDisplay)
         currentPlaceDisplay = view.findViewById(R.id.currentPlaceDisplay)
         resetButton = view.findViewById(R.id.resetButton)
+        lockConfigButton = view.findViewById(R.id.lockConfigButton)
+        configLockStatusText = view.findViewById(R.id.configLockStatusText)
         
         // Load current configuration values
         lifecycleScope.launch {
@@ -89,11 +90,41 @@ class ConfigFragment : Fragment() {
         
         // Setup click listeners
         baseDurationDisplay.setOnClickListener {
-            (activity as? ConfigFragmentCallback)?.showBaseDurationPicker()
+            lifecycleScope.launch {
+                if (stateManager.isConfigLocked()) {
+                    val remaining = stateManager.getConfigLockEndTimestamp() - System.currentTimeMillis()
+                    if (remaining > 0) {
+                        val hours = (remaining / (60 * 60 * 1000)).toInt()
+                        val minutes = ((remaining % (60 * 60 * 1000)) / (60 * 1000)).toInt()
+                        android.widget.Toast.makeText(
+                            requireContext(),
+                            "Config is locked for ${hours}h ${minutes}m more",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } else {
+                    (activity as? ConfigFragmentCallback)?.showBaseDurationPicker()
+                }
+            }
         }
         
         incrementStepDisplay.setOnClickListener {
-            (activity as? ConfigFragmentCallback)?.showIncrementStepPicker()
+            lifecycleScope.launch {
+                if (stateManager.isConfigLocked()) {
+                    val remaining = stateManager.getConfigLockEndTimestamp() - System.currentTimeMillis()
+                    if (remaining > 0) {
+                        val hours = (remaining / (60 * 60 * 1000)).toInt()
+                        val minutes = ((remaining % (60 * 60 * 1000)) / (60 * 1000)).toInt()
+                        android.widget.Toast.makeText(
+                            requireContext(),
+                            "Config is locked for ${hours}h ${minutes}m more",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } else {
+                    (activity as? ConfigFragmentCallback)?.showIncrementStepPicker()
+                }
+            }
         }
         
         currentPlaceDisplay.setOnClickListener {
@@ -112,6 +143,10 @@ class ConfigFragment : Fragment() {
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
+        }
+        
+        lockConfigButton.setOnClickListener {
+            showLockConfigDialog()
         }
         
         lockButton.setOnClickListener {
@@ -145,50 +180,20 @@ class ConfigFragment : Fragment() {
             combine(
                 stateManager.isLocked,
                 stateManager.lockEndTimestamp,
-                stateManager.currentPlaceId
-            ) { isLocked, lockEndTimestamp, placeId ->
-                Triple(isLocked, lockEndTimestamp, placeId)
-            }.collect { (isLocked, lockEndTimestamp, placeId) ->
+                stateManager.currentPlaceId,
+                stateManager.configLockEndTimestamp
+            ) { isLocked, lockEndTimestamp, placeId, configLockEndTimestamp ->
+                Quadruple(isLocked, lockEndTimestamp, placeId, configLockEndTimestamp)
+            }.collect { (isLocked, lockEndTimestamp, placeId, configLockEndTimestamp) ->
                 val increment = stateManager.getIncrement(placeId)
                 updateUI(isLocked, lockEndTimestamp, increment)
+                updateConfigLockStatus(configLockEndTimestamp)
             }
         }
     }
     
     private fun updateUI(isLocked: Boolean, lockEndTimestamp: Long, increment: Long) {
         counterText.text = "Cigarettes smoked: $increment"
-        
-        // Update buffer display
-        lifecycleScope.launch {
-            val place = stateManager.locationConfig.getCurrentPlace()
-            val buffer = place.buffer
-            
-            // Calculate buffer remaining: buffer - (increment % buffer)
-            // Shows how many more cigarettes can be smoked in current buffer cycle
-            // increment 0: 3/3 (3 remaining), increment 1: 2/3 (2 remaining), increment 3: 0/3 (0 remaining - need to lock)
-            val bufferUsed = (increment % buffer).toInt()
-            val bufferRemaining = buffer - bufferUsed
-            bufferText.text = "Buffer: ($bufferRemaining/$buffer)"
-            
-            // Calculate time until next buffer
-            if (isLocked && lockEndTimestamp > 0) {
-                val remainingMs = lockEndTimestamp - System.currentTimeMillis()
-                if (remainingMs > 0) {
-                    val formatted = stateManager.getRemainingTimeFormatted(lockEndTimestamp)
-                    bufferTimeText.text = "Time until next buffer: $formatted"
-                } else {
-                    bufferTimeText.text = "Time until next buffer: Ready"
-                }
-            } else {
-                // Check if buffer is full (need to lock to reset)
-                val needsLock = (increment > 0 && (increment % buffer == 0L))
-                if (needsLock) {
-                    bufferTimeText.text = "Time until next buffer: Lock required"
-                } else {
-                    bufferTimeText.text = "Time until next buffer: Ready"
-                }
-            }
-        }
         
         if (isLocked) {
             titleText.text = "🌿"
@@ -216,16 +221,6 @@ class ConfigFragment : Fragment() {
                     val remaining = stateManager.getRemainingTimeFormatted(lockEndTimestamp)
                     timeText.text = remaining
                     
-                    // Update buffer time text
-                    val place = stateManager.locationConfig.getCurrentPlace()
-                    val buffer = place.buffer
-                    val remainingMs = lockEndTimestamp - System.currentTimeMillis()
-                    if (remainingMs > 0) {
-                        bufferTimeText.text = "Time until next buffer: $remaining"
-                    } else {
-                        bufferTimeText.text = "Time until next buffer: Ready"
-                    }
-                    
                     val remainingMsForCheck = stateManager.getRemainingTimeMillis(lockEndTimestamp)
                     if (remainingMsForCheck > 0) {
                         runnable?.let { updateHandler.postDelayed(it, 1000) }
@@ -247,6 +242,77 @@ class ConfigFragment : Fragment() {
     private fun stopPeriodicUpdate() {
         updateRunnable?.let { updateHandler.removeCallbacks(it) }
         updateRunnable = null
+    }
+    
+    private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+    
+    private fun updateConfigLockStatus(configLockEndTimestamp: Long) {
+        lifecycleScope.launch {
+            val isLocked = configLockEndTimestamp > 0 && configLockEndTimestamp > System.currentTimeMillis()
+            
+            if (isLocked) {
+                val remainingMs = configLockEndTimestamp - System.currentTimeMillis()
+                val hours = (remainingMs / (60 * 60 * 1000)).toInt()
+                val minutes = ((remainingMs % (60 * 60 * 1000)) / (60 * 1000)).toInt()
+                configLockStatusText.text = "🔒 Config locked for ${hours}h ${minutes}m"
+                configLockStatusText.visibility = View.VISIBLE
+                lockConfigButton.text = "Unlock Config"
+                
+                // Disable config controls
+                baseDurationDisplay.alpha = 0.5f
+                baseDurationDisplay.isEnabled = false
+                incrementStepDisplay.alpha = 0.5f
+                incrementStepDisplay.isEnabled = false
+            } else {
+                configLockStatusText.visibility = View.GONE
+                lockConfigButton.text = "Lock Config"
+                
+                // Enable config controls
+                baseDurationDisplay.alpha = 1.0f
+                baseDurationDisplay.isEnabled = true
+                incrementStepDisplay.alpha = 1.0f
+                incrementStepDisplay.isEnabled = true
+            }
+        }
+    }
+    
+    private fun showLockConfigDialog() {
+        lifecycleScope.launch {
+            val isLocked = stateManager.isConfigLocked()
+            if (isLocked) {
+                // Unlock
+                AlertDialog.Builder(requireContext())
+                    .setTitle("Unlock Config?")
+                    .setMessage("This will allow you to change settings again.")
+                    .setPositiveButton("Unlock") { _, _ ->
+                        lifecycleScope.launch {
+                            stateManager.unlockConfig()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            } else {
+                // Lock - show time picker
+                val hoursArray = arrayOf("1 hour", "6 hours", "12 hours", "24 hours", "3 days", "7 days")
+                val hoursValues = intArrayOf(1, 6, 12, 24, 72, 168)
+                
+                AlertDialog.Builder(requireContext())
+                    .setTitle("Lock Config For")
+                    .setItems(hoursArray) { _, which ->
+                        val hours = hoursValues[which]
+                        lifecycleScope.launch {
+                            stateManager.lockConfig(hours)
+                            android.widget.Toast.makeText(
+                                requireContext(),
+                                "Config locked for $hours hours",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }
     }
     
     fun updateCurrentPlace() {

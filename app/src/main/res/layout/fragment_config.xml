@@ -67,24 +67,6 @@
                     android:text="Cigarettes smoked: 0"
                     android:textColor="@color/text_tertiary" />
 
-                <TextView
-                    android:id="@+id/bufferText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="16sp"
-                    android:layout_marginTop="8dp"
-                    android:text="Buffer: (0/1)"
-                    android:textColor="@color/text_tertiary" />
-
-                <TextView
-                    android:id="@+id/bufferTimeText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textSize="16sp"
-                    android:layout_marginTop="8dp"
-                    android:text="Time until next buffer: Ready"
-                    android:textColor="@color/text_tertiary" />
-
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/lockButton"
                     android:layout_width="wrap_content"
@@ -241,18 +223,56 @@
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- Reset Everything Button -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/resetButton"
+        <!-- Config Lock Section -->
+        <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Reset Everything"
-            android:textSize="14sp"
-            android:paddingVertical="12dp"
-            app:backgroundTint="@color/error"
-            app:cornerRadius="8dp"
-            app:rippleColor="@color/error_light"
-            style="@style/Widget.Material3.Button" />
+            android:layout_marginBottom="16dp"
+            app:cardBackgroundColor="@color/surface"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="4dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:id="@+id/configLockStatusText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="14sp"
+                    android:textColor="@color/text_secondary"
+                    android:gravity="center"
+                    android:layout_marginBottom="12dp"
+                    android:visibility="gone" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/lockConfigButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Lock Config"
+                    android:textSize="14sp"
+                    android:paddingVertical="12dp"
+                    android:layout_marginBottom="12dp"
+                    app:backgroundTint="@color/text_secondary"
+                    app:cornerRadius="8dp"
+                    style="@style/Widget.Material3.Button" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/resetButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Reset Everything"
+                    android:textSize="14sp"
+                    android:paddingVertical="12dp"
+                    app:backgroundTint="@color/error"
+                    app:cornerRadius="8dp"
+                    app:rippleColor="@color/error_light"
+                    style="@style/Widget.Material3.Button" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
 
     </LinearLayout>
 

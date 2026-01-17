@@ -234,13 +234,6 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback, 
             }
             layout.addView(incrementInput)
             
-            val bufferInput = EditText(this@MainActivity).apply {
-                hint = "Buffer (cigarettes to smoke at a time)"
-                inputType = InputType.TYPE_CLASS_NUMBER
-                setText("1")
-            }
-            layout.addView(bufferInput)
-            
             var selectedLat = location?.latitude ?: 0.0
             var selectedLon = location?.longitude ?: 0.0
             var selectedRadius = 100.0
@@ -269,7 +262,6 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback, 
                     val name = nameInput.text.toString().ifEmpty { "Unnamed" }
                     val baseDuration = baseDurationInput.text.toString().toLongOrNull() ?: 40L
                     val increment = incrementInput.text.toString().toLongOrNull() ?: 1L
-                    val buffer = bufferInput.text.toString().toIntOrNull() ?: 1
                     
                     val place = Place(
                         id = name,  // Use name as ID
@@ -278,8 +270,7 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback, 
                         longitude = selectedLon,
                         radiusMeters = selectedRadius,
                         baseDurationMinutes = baseDuration,
-                        incrementStepSeconds = increment,
-                        buffer = buffer
+                        incrementStepSeconds = increment
                     )
                     
                     lifecycleScope.launch {
@@ -322,13 +313,6 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback, 
         }
         layout.addView(incrementInput)
         
-        val bufferInput = EditText(this).apply {
-            hint = "Buffer (cigarettes to smoke at a time)"
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setText(place.buffer.toString())
-        }
-        layout.addView(bufferInput)
-        
         var selectedLat = place.latitude
         var selectedLon = place.longitude
         var selectedRadius = place.radiusMeters
@@ -360,8 +344,7 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback, 
                     longitude = selectedLon,
                     radiusMeters = selectedRadius,
                     baseDurationMinutes = baseDurationInput.text.toString().toLongOrNull() ?: place.baseDurationMinutes,
-                    incrementStepSeconds = incrementInput.text.toString().toLongOrNull() ?: place.incrementStepSeconds,
-                    buffer = bufferInput.text.toString().toIntOrNull() ?: place.buffer
+                    incrementStepSeconds = incrementInput.text.toString().toLongOrNull() ?: place.incrementStepSeconds
                 )
                 
                 lifecycleScope.launch {

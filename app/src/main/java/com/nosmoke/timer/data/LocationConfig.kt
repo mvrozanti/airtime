@@ -118,7 +118,6 @@ class LocationConfig(private val context: Context) {
         // Use _config_v2 suffix to avoid conflicts with existing counters
         val baseDurationAdminKey = ensureCounterExists(place.name, "base_duration_minutes_config_v2")
         val incrementAdminKey = ensureCounterExists(place.name, "increment_step_seconds_config_v2")
-        val bufferAdminKey = ensureCounterExists(place.name, "buffer_config_v2")
         
         // Sync place settings to Abacus using admin keys
         var baseDurationSuccess = if (baseDurationAdminKey != null) {
@@ -160,38 +159,13 @@ class LocationConfig(private val context: Context) {
             showToast("Failed to sync increment step to Abacus", Toast.LENGTH_LONG)
         }
         
-        var bufferSuccess = if (bufferAdminKey != null) {
-            AbacusService.setValue(place.name, "buffer_config_v2", place.buffer.toLong(), bufferAdminKey)
-        } else {
-            false
-        }
-        
-        // If failed with invalid token, clear admin key and try recreating
-        if (!bufferSuccess && bufferAdminKey != null) {
-            Log.w(TAG, "Buffer sync failed, clearing admin key and retrying")
-            clearAdminKey(place.name, "buffer_config_v2")
-            val newAdminKey = ensureCounterExists(place.name, "buffer_config_v2")
-            if (newAdminKey != null) {
-                bufferSuccess = AbacusService.setValue(place.name, "buffer_config_v2", place.buffer.toLong(), newAdminKey)
-                if (!bufferSuccess) {
-                    showToast("Failed to sync buffer to Abacus", Toast.LENGTH_LONG)
-                }
-            } else {
-                showToast("Failed to create counter for buffer", Toast.LENGTH_LONG)
-            }
-        } else if (!bufferSuccess) {
-            showToast("Failed to sync buffer to Abacus", Toast.LENGTH_LONG)
-        }
-        
-        val allSuccess = baseDurationSuccess && incrementSuccess && bufferSuccess
+        val allSuccess = baseDurationSuccess && incrementSuccess
         val errorMessage = if (!allSuccess) {
             val errors = mutableListOf<String>()
             if (baseDurationAdminKey == null) errors.add("base duration (counter creation failed)")
             else if (!baseDurationSuccess) errors.add("base duration")
             if (incrementAdminKey == null) errors.add("increment step (counter creation failed)")
             else if (!incrementSuccess) errors.add("increment step")
-            if (bufferAdminKey == null) errors.add("buffer (counter creation failed)")
-            else if (!bufferSuccess) errors.add("buffer")
             "Failed to sync ${errors.joinToString(", ")} to Abacus"
         } else {
             null

@@ -12,7 +12,6 @@ import kotlinx.serialization.Serializable
  * @param radiusMeters Radius in meters from center point that defines this place
  * @param baseDurationMinutes Base duration for timer lock at this place
  * @param incrementStepSeconds How much each subsequent lock adds to the duration
- * @param buffer Number of cigarettes to smoke at a time before locking
  */
 @Serializable
 data class Place(
@@ -22,8 +21,7 @@ data class Place(
     val longitude: Double,
     val radiusMeters: Double,
     val baseDurationMinutes: Long,
-    val incrementStepSeconds: Long,
-    val buffer: Int = 1
+    val incrementStepSeconds: Long
 ) {
     /**
      * Check if given coordinates are within this place's geofence
@@ -44,8 +42,7 @@ data class Place(
             longitude = 0.0,
             radiusMeters = Double.MAX_VALUE,
             baseDurationMinutes = 45L,
-            incrementStepSeconds = 1L,
-            buffer = 1
+            incrementStepSeconds = 1L
         )
         
         /**

@@ -237,3 +237,4 @@ class SmokeTimerService : LifecycleService() {
 The fix was simple but critical: **observe state changes and update the notification reactively**. The button was always working (vibration confirmed), but the notification wasn't updating to reflect the state change. By adding state observation, the notification now automatically updates whenever the timer state changes, providing proper visual feedback to the user.
 
 **Key Takeaway:** When dealing with state-driven UI (like notifications), always use reactive patterns to observe state changes rather than manually managing UI updates.
+

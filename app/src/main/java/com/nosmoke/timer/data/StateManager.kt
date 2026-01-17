@@ -55,6 +55,7 @@ class StateManager(private val context: Context) {
         private val IS_LOCKED_KEY = booleanPreferencesKey("is_locked")
         private val LOCK_END_TIMESTAMP_KEY = longPreferencesKey("lock_end_timestamp")
         private val CURRENT_PLACE_ID_KEY = stringPreferencesKey("current_place_id")
+        private val CONFIG_LOCK_END_TIMESTAMP_KEY = longPreferencesKey("config_lock_end_timestamp")
         
         private fun incrementKey(placeId: String) = longPreferencesKey("${placeId}_increment")
         private fun adminKeyKey(placeId: String, key: String) = stringPreferencesKey("${placeId}_${key}_admin")
@@ -72,6 +73,10 @@ class StateManager(private val context: Context) {
     
     val currentPlaceId: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[CURRENT_PLACE_ID_KEY] ?: Place.DEFAULT.name
+    }
+    
+    val configLockEndTimestamp: Flow<Long> = context.dataStore.data.map { preferences ->
+        preferences[CONFIG_LOCK_END_TIMESTAMP_KEY] ?: 0L
     }
 
     suspend fun getIncrement(placeId: String): Long {
@@ -102,6 +107,31 @@ class StateManager(private val context: Context) {
         return context.dataStore.data.map { it[CURRENT_PLACE_ID_KEY] ?: Place.DEFAULT.name }.first()
     }
     
+    suspend fun getConfigLockEndTimestamp(): Long {
+        return context.dataStore.data.map { it[CONFIG_LOCK_END_TIMESTAMP_KEY] ?: 0L }.first()
+    }
+    
+    suspend fun isConfigLocked(): Boolean {
+        val lockEndTimestamp = getConfigLockEndTimestamp()
+        return lockEndTimestamp > 0 && lockEndTimestamp > System.currentTimeMillis()
+    }
+    
+    suspend fun lockConfig(hours: Int) {
+        val lockDurationMs = hours * 60 * 60 * 1000L
+        val lockEndTime = System.currentTimeMillis() + lockDurationMs
+        context.dataStore.edit { preferences ->
+            preferences[CONFIG_LOCK_END_TIMESTAMP_KEY] = lockEndTime
+        }
+        Log.d("StateManager", "Config locked for $hours hours, until $lockEndTime")
+    }
+    
+    suspend fun unlockConfig() {
+        context.dataStore.edit { preferences ->
+            preferences[CONFIG_LOCK_END_TIMESTAMP_KEY] = 0L
+        }
+        Log.d("StateManager", "Config unlocked")
+    }
+    
     /**
      * Get base duration from current location-based place (or Unknown)
      */
@@ -123,6 +153,10 @@ class StateManager(private val context: Context) {
     }
     
     suspend fun setBaseDurationMinutes(minutes: Long) {
+        if (isConfigLocked()) {
+            showToast("Config is locked. Cannot change settings.", Toast.LENGTH_LONG)
+            return
+        }
         val place = locationConfig.getCurrentPlace()
         var adminKey = getAdminKey(place.name, "base_duration_minutes_config_v2")
         if (adminKey == null) {
@@ -140,6 +174,10 @@ class StateManager(private val context: Context) {
     }
     
     suspend fun setIncrementStepSeconds(seconds: Long) {
+        if (isConfigLocked()) {
+            showToast("Config is locked. Cannot change settings.", Toast.LENGTH_LONG)
+            return
+        }
         val place = locationConfig.getCurrentPlace()
         var adminKey = getAdminKey(place.name, "increment_step_seconds_config_v2")
         if (adminKey == null) {
@@ -165,8 +203,15 @@ class StateManager(private val context: Context) {
         
         // Get duration config from current location-based place (or Unknown if no match)
         val currentPlace = locationConfig.getCurrentPlace()
-        val baseDurationMinutes = getBaseDurationMinutes() ?: currentPlace.baseDurationMinutes
-        val incrementStepSeconds = getIncrementStepSeconds() ?: currentPlace.incrementStepSeconds
+        // Use the already-determined place to get config (don't call getCurrentPlace() again in getBaseDurationMinutes)
+        val baseDurationMinutes = AbacusService.getValue(currentPlace.name, "base_duration_minutes_config_v2")
+            ?: AbacusService.getValue(currentPlace.name, "base_duration_minutes_config")
+            ?: AbacusService.getValue(currentPlace.name, "base_duration_minutes")
+            ?: currentPlace.baseDurationMinutes
+        val incrementStepSeconds = AbacusService.getValue(currentPlace.name, "increment_step_seconds_config_v2")
+            ?: AbacusService.getValue(currentPlace.name, "increment_step_seconds_config")
+            ?: AbacusService.getValue(currentPlace.name, "increment_step_seconds")
+            ?: currentPlace.incrementStepSeconds
         
         Log.d("StateManager", "LOCK: place=${currentPlace.name} (config), state=$STATE_PLACE, base=${baseDurationMinutes}min, step=${incrementStepSeconds}s, increment=$currentIncrement")
         
@@ -420,6 +465,11 @@ class StateManager(private val context: Context) {
         
         // Clear analytics
         AnalyticsManager(context).clearAll()
+        
+        // Unlock config
+        context.dataStore.edit { preferences ->
+            preferences[CONFIG_LOCK_END_TIMESTAMP_KEY] = 0L
+        }
         
         // Sync to Abacus
         backgroundScope.launch {
