@@ -129,7 +129,12 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback {
     // ConfigFragmentCallback implementations
     override fun showBaseDurationPicker() {
         lifecycleScope.launch {
-            val currentValue = stateManager.getBaseDurationMinutes().toInt()
+            val baseDuration = stateManager.getBaseDurationMinutes()
+            if (baseDuration == null) {
+                Toast.makeText(this@MainActivity, "Error: Cannot connect to Abacus", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val currentValue = baseDuration.toInt()
             
             val picker = NumberPicker(this@MainActivity).apply {
                 minValue = 1
@@ -157,7 +162,12 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback {
 
     override fun showIncrementStepPicker() {
         lifecycleScope.launch {
-            val currentValue = stateManager.getIncrementStepSeconds().toInt()
+            val incrementStep = stateManager.getIncrementStepSeconds()
+            if (incrementStep == null) {
+                Toast.makeText(this@MainActivity, "Error: Cannot connect to Abacus", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val currentValue = incrementStep.toInt()
             
             val picker = NumberPicker(this@MainActivity).apply {
                 minValue = 1

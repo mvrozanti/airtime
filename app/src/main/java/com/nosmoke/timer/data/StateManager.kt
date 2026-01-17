@@ -110,36 +110,32 @@ class StateManager(private val context: Context) {
     
     /**
      * Get base duration for the current place
-     * Uses place's configured value, with Abacus as override
+     * Always reads from Abacus - NO FALLBACK to local values
+     * Returns null if Abacus is unavailable
      */
-    suspend fun getBaseDurationMinutes(): Long {
+    suspend fun getBaseDurationMinutes(): Long? {
         val place = locationConfig.getCurrentPlace()
-        // Try Abacus first for override (check v2, then v1, then old format for compatibility)
+        // Try Abacus (check v2, then v1, then old format for compatibility)
         val abacusValue = AbacusService.getValue(place.name, "base_duration_minutes_config_v2")
             ?: AbacusService.getValue(place.name, "base_duration_minutes_config")
             ?: AbacusService.getValue(place.name, "base_duration_minutes")
-        if (abacusValue != null) {
-            return abacusValue
-        }
-        // Use place's configured value
-        return place.baseDurationMinutes
+        // Return null if Abacus unavailable - NO FALLBACK
+        return abacusValue
     }
     
     /**
      * Get increment step for the current place
-     * Uses place's configured value, with Abacus as override
+     * Always reads from Abacus - NO FALLBACK to local values
+     * Returns null if Abacus is unavailable
      */
-    suspend fun getIncrementStepSeconds(): Long {
+    suspend fun getIncrementStepSeconds(): Long? {
         val place = locationConfig.getCurrentPlace()
-        // Try Abacus first for override (check v2, then v1, then old format for compatibility)
+        // Try Abacus (check v2, then v1, then old format for compatibility)
         val abacusValue = AbacusService.getValue(place.name, "increment_step_seconds_config_v2")
             ?: AbacusService.getValue(place.name, "increment_step_seconds_config")
             ?: AbacusService.getValue(place.name, "increment_step_seconds")
-        if (abacusValue != null) {
-            return abacusValue
-        }
-        // Use place's configured value
-        return place.incrementStepSeconds
+        // Return null if Abacus unavailable - NO FALLBACK
+        return abacusValue
     }
     
     /**
@@ -177,8 +173,6 @@ class StateManager(private val context: Context) {
             }
         } else {
             Log.d("StateManager", "Successfully set base_duration_minutes_config_v2 to $minutes")
-            // Force clear cache to ensure fresh read
-            AbacusService.clearCache(place.name, "base_duration_minutes_config_v2")
         }
     }
     
@@ -217,16 +211,16 @@ class StateManager(private val context: Context) {
             }
         } else {
             Log.d("StateManager", "Successfully set increment_step_seconds_config_v2 to $seconds")
-            // Force clear cache to ensure fresh read
-            AbacusService.clearCache(place.name, "increment_step_seconds_config_v2")
         }
     }
 
     suspend fun lock() {
         val place = locationConfig.getCurrentPlace()
         val currentIncrement = getIncrement(place.name)
-        val baseDurationMinutes = getBaseDurationMinutes()
+        val baseDurationMinutes = getBaseDurationMinutes() 
+            ?: throw IllegalStateException("Cannot get base duration from Abacus - Abacus unavailable")
         val incrementStepSeconds = getIncrementStepSeconds()
+            ?: throw IllegalStateException("Cannot get increment step from Abacus - Abacus unavailable")
         val baseDurationMs = baseDurationMinutes * 60 * 1000
         val lockDuration = baseDurationMs + (currentIncrement * incrementStepSeconds * 1000)
         val lockEndTime = System.currentTimeMillis() + lockDuration

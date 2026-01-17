@@ -70,8 +70,16 @@ class ConfigFragment : Fragment() {
         lifecycleScope.launch {
             val baseDuration = stateManager.getBaseDurationMinutes()
             val incrementStep = stateManager.getIncrementStepSeconds()
-            baseDurationDisplay.text = baseDuration.toString()
-            incrementStepDisplay.text = incrementStep.toString()
+            if (baseDuration != null) {
+                baseDurationDisplay.text = baseDuration.toString()
+            } else {
+                baseDurationDisplay.text = "?"
+            }
+            if (incrementStep != null) {
+                incrementStepDisplay.text = incrementStep.toString()
+            } else {
+                incrementStepDisplay.text = "?"
+            }
         }
         
         // Setup click listeners
@@ -195,8 +203,16 @@ class ConfigFragment : Fragment() {
         lifecycleScope.launch {
             val baseDuration = stateManager.getBaseDurationMinutes()
             val incrementStep = stateManager.getIncrementStepSeconds()
-            baseDurationDisplay.text = baseDuration.toString()
-            incrementStepDisplay.text = incrementStep.toString()
+            if (baseDuration != null) {
+                baseDurationDisplay.text = baseDuration.toString()
+            } else {
+                baseDurationDisplay.text = "?"
+            }
+            if (incrementStep != null) {
+                incrementStepDisplay.text = incrementStep.toString()
+            } else {
+                incrementStepDisplay.text = "?"
+            }
         }
     }
     

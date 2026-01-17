@@ -27,11 +27,7 @@ object AbacusService {
     private const val RATE_LIMIT_REQUESTS = 30
     private const val RATE_LIMIT_WINDOW_MS = 10_000L // 10 seconds
     
-    // Cache for getValue calls to reduce API calls
-    private data class CachedValue(val value: Long?, val timestamp: Long)
-    private val cache = ConcurrentHashMap<String, CachedValue>()
-    private const val CACHE_TTL_MS = 30_000L // Cache for 30 seconds
-    private val cacheMutex = Mutex()
+    // NO CACHE - Always fetch from Abacus to ensure consistency
     
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -73,34 +69,15 @@ object AbacusService {
     }
 
     /**
-     * Clear cache for a specific key
-     */
-    suspend fun clearCache(placeId: String, key: String) {
-        val fullKey = "${placeId}_$key"
-        cacheMutex.withLock {
-            cache.remove(fullKey)
-            Log.d("AbacusService", "Cleared cache for $fullKey")
-        }
-    }
-    
-    /**
      * Get a value for a specific place
      * Key format: {placeId}_{key}
-     * Uses caching to reduce API calls and respects rate limits
+     * Always fetches from Abacus - NO CACHE
+     * Respects rate limits
      */
     suspend fun getValue(placeId: String, key: String): Long? {
         val fullKey = "${placeId}_$key"
         
-        // Check cache first
-        cacheMutex.withLock {
-            val cached = cache[fullKey]
-            if (cached != null && (System.currentTimeMillis() - cached.timestamp) < CACHE_TTL_MS) {
-                Log.d("AbacusService", "Cache hit for $fullKey: ${cached.value}")
-                return cached.value
-            }
-        }
-        
-        // Cache miss or expired, fetch from API
+        // Always fetch from API - NO CACHE
         checkRateLimit()
         
         return withContext(Dispatchers.IO) {
@@ -133,11 +110,6 @@ object AbacusService {
                     null
                 }
                 response.close()
-                
-                // Cache the result (even if null, to avoid repeated failed requests)
-                cacheMutex.withLock {
-                    cache[fullKey] = CachedValue(value, System.currentTimeMillis())
-                }
                 
                 if (value != null) {
                     Log.d("AbacusService", "Retrieved $fullKey: $value")
@@ -249,10 +221,6 @@ object AbacusService {
                 val success = response.isSuccessful
                 if (success) {
                     Log.d("AbacusService", "Stored $fullKey: $value")
-                    // Invalidate cache for this key
-                    cacheMutex.withLock {
-                        cache.remove(fullKey)
-                    }
                 } else {
                     val errorBody = response.body?.string()
                     val statusCode = response.code
