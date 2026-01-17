@@ -10,15 +10,20 @@ import android.util.Log
 import android.widget.Button
 import android.widget.TextView
 import android.widget.NumberPicker
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.app.AlertDialog
+import android.text.InputType
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.lifecycleScope
+import com.nosmoke.timer.data.Place
 import com.nosmoke.timer.data.StateManager
 import com.nosmoke.timer.service.SmokeTimerService
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 class MainActivity : ComponentActivity() {
 
@@ -30,18 +35,28 @@ class MainActivity : ComponentActivity() {
     private lateinit var lockButton: Button
     private lateinit var baseDurationDisplay: TextView
     private lateinit var incrementStepDisplay: TextView
+    private lateinit var currentPlaceDisplay: TextView
+    private lateinit var managePlacesButton: Button
     private val updateHandler = Handler(Looper.getMainLooper())
     private var updateRunnable: Runnable? = null
 
-    private val requestPermissionLauncher = registerForActivityResult(
+    private val requestNotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
         if (isGranted) {
-            startService()
-            observeState()
+            checkLocationPermissionAndStart()
         } else {
             finish()
         }
+    }
+    
+    private val requestLocationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        // Location permission is optional - continue regardless
+        startService()
+        observeState()
+        updateCurrentPlace()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,6 +82,8 @@ class MainActivity : ComponentActivity() {
         lockButton = findViewById(R.id.lockButton)
         baseDurationDisplay = findViewById(R.id.baseDurationDisplay)
         incrementStepDisplay = findViewById(R.id.incrementStepDisplay)
+        currentPlaceDisplay = findViewById(R.id.currentPlaceDisplay)
+        managePlacesButton = findViewById(R.id.managePlacesButton)
         
         // Load current configuration values
         lifecycleScope.launch {
@@ -84,6 +101,14 @@ class MainActivity : ComponentActivity() {
         incrementStepDisplay.setOnClickListener {
             showIncrementStepPicker()
         }
+        
+        currentPlaceDisplay.setOnClickListener {
+            updateCurrentPlace()
+        }
+        
+        managePlacesButton.setOnClickListener {
+            showManagePlacesDialog()
+        }
 
         lockButton.setOnClickListener {
             Log.e("MainActivity", "=== LOCK BUTTON CLICKED ===")
@@ -98,6 +123,9 @@ class MainActivity : ComponentActivity() {
                 Log.e("MainActivity", "Lock button: State AFTER lock: $isLockedAfter")
 
                 Log.e("MainActivity", "Lock button: Lock operation completed")
+                
+                // Refresh settings display after lock (may have changed place)
+                updateCurrentPlace()
             }
         }
 
@@ -108,18 +136,49 @@ class MainActivity : ComponentActivity() {
                     Manifest.permission.POST_NOTIFICATIONS
                 ) != android.content.pm.PackageManager.PERMISSION_GRANTED
             ) {
-                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 return
             }
         }
 
-        startService()
-        observeState()
+        checkLocationPermissionAndStart()
+    }
+    
+    private fun checkLocationPermissionAndStart() {
+        // Request location permission if not granted
+        if (!stateManager.locationConfig.hasLocationPermission()) {
+            requestLocationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        } else {
+            startService()
+            observeState()
+            updateCurrentPlace()
+        }
+    }
+    
+    private fun updateCurrentPlace() {
+        lifecycleScope.launch {
+            val place = stateManager.locationConfig.getCurrentPlace()
+            currentPlaceDisplay.text = place.name
+            
+            // Also update the settings display for this place
+            baseDurationDisplay.text = place.baseDurationMinutes.toString()
+            incrementStepDisplay.text = place.incrementStepSeconds.toString()
+            
+            // Update increment counter for this place
+            val increment = stateManager.getIncrement(place.id)
+            counterText.text = "Cigarettes smoked: $increment"
+        }
     }
 
     override fun onResume() {
         super.onResume()
         Log.e("MainActivity", "onResume called")
+        updateCurrentPlace()
         lifecycleScope.launch {
             val isLocked = stateManager.getIsLocked()
             if (isLocked) {
@@ -142,16 +201,17 @@ class MainActivity : ComponentActivity() {
             combine(
                 stateManager.isLocked,
                 stateManager.lockEndTimestamp,
-                stateManager.increment
-            ) { isLocked, lockEndTimestamp, increment ->
-                Triple(isLocked, lockEndTimestamp, increment)
-            }.collect { (isLocked, lockEndTimestamp, increment) ->
-                updateUI(isLocked, lockEndTimestamp, increment)
+                stateManager.currentPlaceId
+            ) { isLocked, lockEndTimestamp, placeId ->
+                Triple(isLocked, lockEndTimestamp, placeId)
+            }.collect { (isLocked, lockEndTimestamp, placeId) ->
+                val increment = stateManager.getIncrement(placeId)
+                updateUI(isLocked, lockEndTimestamp, increment)  // lockEndTimestamp passed but not used in updateUI
             }
         }
     }
 
-    private fun updateUI(isLocked: Boolean, lockEndTimestamp: Long, increment: Long) {
+    private fun updateUI(isLocked: Boolean, _lockEndTimestamp: Long, increment: Long) {
         Log.e("MainActivity", "UPDATE UI: isLocked=$isLocked, increment=$increment")
 
         // Update counter (increment represents number of cigarettes smoked)
@@ -252,6 +312,186 @@ class MainActivity : ComponentActivity() {
                 .setNegativeButton("Cancel", null)
                 .show()
         }
+    }
+    
+    private fun showManagePlacesDialog() {
+        lifecycleScope.launch {
+            val places = stateManager.locationConfig.getPlaces()
+            val placeNames = places.map { it.name }.toTypedArray()
+            
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Manage Places")
+                .setItems(placeNames) { _, which ->
+                    showEditPlaceDialog(places[which])
+                }
+                .setPositiveButton("Add New Place") { _, _ ->
+                    showAddPlaceDialog()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+    }
+    
+    private fun showAddPlaceDialog() {
+        lifecycleScope.launch {
+            val location = stateManager.locationConfig.getCurrentLocation()
+            
+            val layout = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(48, 32, 48, 16)
+            }
+            
+            val nameInput = EditText(this@MainActivity).apply {
+                hint = "Place name"
+            }
+            layout.addView(nameInput)
+            
+            val latInput = EditText(this@MainActivity).apply {
+                hint = "Latitude"
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+                setText(location?.latitude?.toString() ?: "0.0")
+            }
+            layout.addView(latInput)
+            
+            val lonInput = EditText(this@MainActivity).apply {
+                hint = "Longitude"
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+                setText(location?.longitude?.toString() ?: "0.0")
+            }
+            layout.addView(lonInput)
+            
+            val radiusInput = EditText(this@MainActivity).apply {
+                hint = "Radius (meters)"
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setText("100")
+            }
+            layout.addView(radiusInput)
+            
+            val baseDurationInput = EditText(this@MainActivity).apply {
+                hint = "Base duration (minutes)"
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setText("40")
+            }
+            layout.addView(baseDurationInput)
+            
+            val incrementInput = EditText(this@MainActivity).apply {
+                hint = "Increment step (seconds)"
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setText("1")
+            }
+            layout.addView(incrementInput)
+            
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Add New Place")
+                .setView(layout)
+                .setPositiveButton("Save") { _, _ ->
+                    val name = nameInput.text.toString().ifEmpty { "Unnamed" }
+                    val lat = latInput.text.toString().toDoubleOrNull() ?: 0.0
+                    val lon = lonInput.text.toString().toDoubleOrNull() ?: 0.0
+                    val radius = radiusInput.text.toString().toDoubleOrNull() ?: 100.0
+                    val baseDuration = baseDurationInput.text.toString().toLongOrNull() ?: 40L
+                    val increment = incrementInput.text.toString().toLongOrNull() ?: 1L
+                    
+                    val place = Place(
+                        id = UUID.randomUUID().toString().take(8),
+                        name = name,
+                        latitude = lat,
+                        longitude = lon,
+                        radiusMeters = radius,
+                        baseDurationMinutes = baseDuration,
+                        incrementStepSeconds = increment
+                    )
+                    
+                    lifecycleScope.launch {
+                        stateManager.locationConfig.savePlace(place)
+                        updateCurrentPlace()
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+    }
+    
+    private fun showEditPlaceDialog(place: Place) {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 32, 48, 16)
+        }
+        
+        val nameInput = EditText(this).apply {
+            hint = "Place name"
+            setText(place.name)
+        }
+        layout.addView(nameInput)
+        
+        val latInput = EditText(this).apply {
+            hint = "Latitude"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+            setText(place.latitude.toString())
+        }
+        layout.addView(latInput)
+        
+        val lonInput = EditText(this).apply {
+            hint = "Longitude"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+            setText(place.longitude.toString())
+        }
+        layout.addView(lonInput)
+        
+        val radiusInput = EditText(this).apply {
+            hint = "Radius (meters)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(place.radiusMeters.toInt().toString())
+        }
+        layout.addView(radiusInput)
+        
+        val baseDurationInput = EditText(this).apply {
+            hint = "Base duration (minutes)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(place.baseDurationMinutes.toString())
+        }
+        layout.addView(baseDurationInput)
+        
+        val incrementInput = EditText(this).apply {
+            hint = "Increment step (seconds)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(place.incrementStepSeconds.toString())
+        }
+        layout.addView(incrementInput)
+        
+        AlertDialog.Builder(this)
+            .setTitle("Edit Place: ${place.name}")
+            .setView(layout)
+            .setPositiveButton("Save") { _, _ ->
+                val updatedPlace = place.copy(
+                    name = nameInput.text.toString().ifEmpty { place.name },
+                    latitude = latInput.text.toString().toDoubleOrNull() ?: place.latitude,
+                    longitude = lonInput.text.toString().toDoubleOrNull() ?: place.longitude,
+                    radiusMeters = radiusInput.text.toString().toDoubleOrNull() ?: place.radiusMeters,
+                    baseDurationMinutes = baseDurationInput.text.toString().toLongOrNull() ?: place.baseDurationMinutes,
+                    incrementStepSeconds = incrementInput.text.toString().toLongOrNull() ?: place.incrementStepSeconds
+                )
+                
+                lifecycleScope.launch {
+                    stateManager.locationConfig.savePlace(updatedPlace)
+                    updateCurrentPlace()
+                }
+            }
+            .setNeutralButton("Delete") { _, _ ->
+                AlertDialog.Builder(this)
+                    .setTitle("Delete Place?")
+                    .setMessage("Are you sure you want to delete ${place.name}?")
+                    .setPositiveButton("Delete") { _, _ ->
+                        lifecycleScope.launch {
+                            stateManager.locationConfig.deletePlace(place.id)
+                            updateCurrentPlace()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
 }

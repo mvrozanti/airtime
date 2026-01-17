@@ -9,6 +9,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -25,14 +26,13 @@ class StateManager(private val context: Context) {
     companion object {
         private val IS_LOCKED_KEY = booleanPreferencesKey("is_locked")
         private val LOCK_END_TIMESTAMP_KEY = longPreferencesKey("lock_end_timestamp")
-        private val INCREMENT_KEY = longPreferencesKey("increment_seconds")
-        private val BASE_DURATION_MINUTES_KEY = longPreferencesKey("base_duration_minutes")
-        private val INCREMENT_STEP_SECONDS_KEY = longPreferencesKey("increment_step_seconds")
+        private val CURRENT_PLACE_ID_KEY = stringPreferencesKey("current_place_id")
         
-        // Default values
-        private const val DEFAULT_BASE_DURATION_MINUTES = 40L
-        private const val DEFAULT_INCREMENT_STEP_SECONDS = 1L
+        // Increment keys are now per-place, stored as {placeId}_increment
+        private fun incrementKey(placeId: String) = longPreferencesKey("${placeId}_increment")
     }
+    
+    val locationConfig = LocationConfig(context)
 
     val isLocked: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[IS_LOCKED_KEY] ?: false
@@ -41,9 +41,35 @@ class StateManager(private val context: Context) {
     val lockEndTimestamp: Flow<Long> = context.dataStore.data.map { preferences ->
         preferences[LOCK_END_TIMESTAMP_KEY] ?: 0L
     }
+    
+    val currentPlaceId: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[CURRENT_PLACE_ID_KEY] ?: Place.DEFAULT.id
+    }
 
-    val increment: Flow<Long> = context.dataStore.data.map { preferences ->
-        preferences[INCREMENT_KEY] ?: 0L
+    /**
+     * Get increment for a specific place
+     */
+    suspend fun getIncrement(placeId: String): Long {
+        val key = incrementKey(placeId)
+        return context.dataStore.data.map { it[key] ?: 0L }.first()
+    }
+    
+    /**
+     * Get increment for the current place
+     */
+    suspend fun getCurrentIncrement(): Long {
+        val place = locationConfig.getCurrentPlace()
+        return getIncrement(place.id)
+    }
+
+    /**
+     * Flow of increment for the current place (updates when place changes)
+     */
+    fun incrementFlow(placeId: String): Flow<Long> {
+        val key = incrementKey(placeId)
+        return context.dataStore.data.map { preferences ->
+            preferences[key] ?: 0L
+        }
     }
 
     suspend fun getIsLocked(): Boolean {
@@ -53,61 +79,60 @@ class StateManager(private val context: Context) {
     suspend fun getLockEndTimestamp(): Long {
         return context.dataStore.data.map { it[LOCK_END_TIMESTAMP_KEY] ?: 0L }.first()
     }
-
-    suspend fun getIncrement(): Long {
-        return context.dataStore.data.map { it[INCREMENT_KEY] ?: 0L }.first()
+    
+    suspend fun getCurrentPlaceId(): String {
+        return context.dataStore.data.map { it[CURRENT_PLACE_ID_KEY] ?: Place.DEFAULT.id }.first()
     }
     
+    /**
+     * Get base duration for the current place
+     * Uses place's configured value, with Abacus as override
+     */
     suspend fun getBaseDurationMinutes(): Long {
-        // Try Abacus first
-        val abacusValue = AbacusService.getValue("base_duration_minutes")
+        val place = locationConfig.getCurrentPlace()
+        // Try Abacus first for override
+        val abacusValue = AbacusService.getValue(place.id, "base_duration_minutes")
         if (abacusValue != null) {
-            // Cache in local storage
-            context.dataStore.edit { preferences ->
-                preferences[BASE_DURATION_MINUTES_KEY] = abacusValue
-            }
             return abacusValue
         }
-        // Fallback to local storage
-        val localValue = context.dataStore.data.map { it[BASE_DURATION_MINUTES_KEY] }.first()
-        return localValue ?: DEFAULT_BASE_DURATION_MINUTES
+        // Use place's configured value
+        return place.baseDurationMinutes
     }
     
+    /**
+     * Get increment step for the current place
+     * Uses place's configured value, with Abacus as override
+     */
     suspend fun getIncrementStepSeconds(): Long {
-        // Try Abacus first
-        val abacusValue = AbacusService.getValue("increment_step_seconds")
+        val place = locationConfig.getCurrentPlace()
+        // Try Abacus first for override
+        val abacusValue = AbacusService.getValue(place.id, "increment_step_seconds")
         if (abacusValue != null) {
-            // Cache in local storage
-            context.dataStore.edit { preferences ->
-                preferences[INCREMENT_STEP_SECONDS_KEY] = abacusValue
-            }
             return abacusValue
         }
-        // Fallback to local storage
-        val localValue = context.dataStore.data.map { it[INCREMENT_STEP_SECONDS_KEY] }.first()
-        return localValue ?: DEFAULT_INCREMENT_STEP_SECONDS
+        // Use place's configured value
+        return place.incrementStepSeconds
     }
     
+    /**
+     * Set base duration for the current place (stores to Abacus)
+     */
     suspend fun setBaseDurationMinutes(minutes: Long) {
-        // Store to Abacus (fire and forget)
-        AbacusService.setValue("base_duration_minutes", minutes)
-        // Also store locally as cache
-        context.dataStore.edit { preferences ->
-            preferences[BASE_DURATION_MINUTES_KEY] = minutes
-        }
+        val place = locationConfig.getCurrentPlace()
+        AbacusService.setValue(place.id, "base_duration_minutes", minutes)
     }
     
+    /**
+     * Set increment step for the current place (stores to Abacus)
+     */
     suspend fun setIncrementStepSeconds(seconds: Long) {
-        // Store to Abacus (fire and forget)
-        AbacusService.setValue("increment_step_seconds", seconds)
-        // Also store locally as cache
-        context.dataStore.edit { preferences ->
-            preferences[INCREMENT_STEP_SECONDS_KEY] = seconds
-        }
+        val place = locationConfig.getCurrentPlace()
+        AbacusService.setValue(place.id, "increment_step_seconds", seconds)
     }
 
     suspend fun lock() {
-        val currentIncrement = getIncrement()
+        val place = locationConfig.getCurrentPlace()
+        val currentIncrement = getIncrement(place.id)
         val baseDurationMinutes = getBaseDurationMinutes()
         val incrementStepSeconds = getIncrementStepSeconds()
         val baseDurationMs = baseDurationMinutes * 60 * 1000
@@ -115,14 +140,16 @@ class StateManager(private val context: Context) {
         val lockEndTime = System.currentTimeMillis() + lockDuration
         val newIncrement = currentIncrement + 1
 
-        Log.e("StateManager", "LOCKING TIMER: increment=$currentIncrement, duration=$lockDuration ms, endTime=$lockEndTime")
+        Log.e("StateManager", "LOCKING TIMER: place=${place.name}, increment=$currentIncrement, duration=$lockDuration ms, endTime=$lockEndTime")
         Log.e("StateManager", "LOCKING TIMER: About to edit DataStore...")
 
+        val incrementKey = incrementKey(place.id)
         context.dataStore.edit { preferences ->
             Log.e("StateManager", "LOCKING TIMER: Inside DataStore edit block")
             preferences[IS_LOCKED_KEY] = true
             preferences[LOCK_END_TIMESTAMP_KEY] = lockEndTime
-            preferences[INCREMENT_KEY] = newIncrement
+            preferences[CURRENT_PLACE_ID_KEY] = place.id
+            preferences[incrementKey] = newIncrement
             Log.e("StateManager", "LOCKING TIMER: DataStore values set")
         }
 
@@ -145,7 +172,7 @@ class StateManager(private val context: Context) {
         }
 
         // Track lock with Abacus (fire and forget)
-        AbacusService.trackLock()
+        AbacusService.trackLock(place.id)
 
         Log.e("StateManager", "TIMER LOCKED SUCCESSFULLY - Alarm scheduled for unlock")
     }
@@ -157,17 +184,31 @@ class StateManager(private val context: Context) {
         }
     }
 
-    suspend fun resetIncrement() {
+    /**
+     * Reset increment for a specific place
+     */
+    suspend fun resetIncrement(placeId: String) {
+        val key = incrementKey(placeId)
         context.dataStore.edit { preferences ->
-            preferences[INCREMENT_KEY] = 0L
+            preferences[key] = 0L
         }
+    }
+    
+    /**
+     * Reset increment for the current place
+     */
+    suspend fun resetCurrentIncrement() {
+        val place = locationConfig.getCurrentPlace()
+        resetIncrement(place.id)
     }
 
     suspend fun reset() {
+        val placeId = getCurrentPlaceId()
+        val key = incrementKey(placeId)
         context.dataStore.edit { preferences ->
             preferences[IS_LOCKED_KEY] = false
             preferences[LOCK_END_TIMESTAMP_KEY] = 0L
-            preferences[INCREMENT_KEY] = 0L
+            preferences[key] = 0L
         }
     }
 
