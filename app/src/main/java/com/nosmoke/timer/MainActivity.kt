@@ -3,43 +3,35 @@ package com.nosmoke.timer
 import android.Manifest
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.view.View
 import android.util.Log
 import android.widget.Button
-import android.widget.TextView
-import android.widget.NumberPicker
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.NumberPicker
+import android.widget.Toast
 import android.app.AlertDialog
 import android.text.InputType
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.viewpager2.widget.ViewPager2
+import com.google.android.material.tabs.TabLayout
+import com.google.android.material.tabs.TabLayoutMediator
+import com.nosmoke.timer.adapters.MainPagerAdapter
 import com.nosmoke.timer.data.Place
 import com.nosmoke.timer.data.StateManager
+import com.nosmoke.timer.fragments.ConfigFragment
 import com.nosmoke.timer.service.SmokeTimerService
 import com.nosmoke.timer.ui.MapPickerDialog
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import java.util.UUID
 
-class MainActivity : FragmentActivity() {
+class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback {
 
     private lateinit var stateManager: StateManager
-    private lateinit var statusText: TextView
-    private lateinit var timeText: TextView
-    private lateinit var titleText: TextView
-    private lateinit var counterText: TextView
-    private lateinit var lockButton: Button
-    private lateinit var baseDurationDisplay: TextView
-    private lateinit var incrementStepDisplay: TextView
-    private lateinit var currentPlaceDisplay: TextView
-    private lateinit var managePlacesButton: Button
-    private val updateHandler = Handler(Looper.getMainLooper())
-    private var updateRunnable: Runnable? = null
+    private lateinit var viewPager: ViewPager2
+    private lateinit var tabLayout: TabLayout
+    private var configFragment: ConfigFragment? = null
 
     private val requestNotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -56,8 +48,6 @@ class MainActivity : FragmentActivity() {
     ) { _ ->
         // Location permission is optional - continue regardless
         startService()
-        observeState()
-        updateCurrentPlace()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,59 +66,21 @@ class MainActivity : FragmentActivity() {
                 stateManager.lock()
             }
         }
-        statusText = findViewById(R.id.statusText)
-        timeText = findViewById(R.id.timeText)
-        titleText = findViewById(R.id.titleText)
-        counterText = findViewById(R.id.counterText)
-        lockButton = findViewById(R.id.lockButton)
-        baseDurationDisplay = findViewById(R.id.baseDurationDisplay)
-        incrementStepDisplay = findViewById(R.id.incrementStepDisplay)
-        currentPlaceDisplay = findViewById(R.id.currentPlaceDisplay)
-        managePlacesButton = findViewById(R.id.managePlacesButton)
         
-        // Load current configuration values
-        lifecycleScope.launch {
-            val baseDuration = stateManager.getBaseDurationMinutes()
-            val incrementStep = stateManager.getIncrementStepSeconds()
-            baseDurationDisplay.text = baseDuration.toString()
-            incrementStepDisplay.text = incrementStep.toString()
-        }
+        // Setup ViewPager and Tabs
+        viewPager = findViewById(R.id.viewPager)
+        tabLayout = findViewById(R.id.tabLayout)
         
-        // Setup click listeners to show NumberPicker dialogs
-        baseDurationDisplay.setOnClickListener {
-            showBaseDurationPicker()
-        }
+        val adapter = MainPagerAdapter(this, stateManager)
+        viewPager.adapter = adapter
         
-        incrementStepDisplay.setOnClickListener {
-            showIncrementStepPicker()
-        }
-        
-        currentPlaceDisplay.setOnClickListener {
-            updateCurrentPlace()
-        }
-        
-        managePlacesButton.setOnClickListener {
-            showManagePlacesDialog()
-        }
-
-        lockButton.setOnClickListener {
-            Log.e("MainActivity", "=== LOCK BUTTON CLICKED ===")
-            lifecycleScope.launch {
-                Log.e("MainActivity", "Lock button: Starting lock operation")
-                val isLockedBefore = stateManager.getIsLocked()
-                Log.e("MainActivity", "Lock button: State BEFORE lock: $isLockedBefore")
-
-                stateManager.lock()
-
-                val isLockedAfter = stateManager.getIsLocked()
-                Log.e("MainActivity", "Lock button: State AFTER lock: $isLockedAfter")
-
-                Log.e("MainActivity", "Lock button: Lock operation completed")
-                
-                // Refresh settings display after lock (may have changed place)
-                updateCurrentPlace()
+        TabLayoutMediator(tabLayout, viewPager) { tab, position ->
+            tab.text = when (position) {
+                0 -> "Config"
+                1 -> "Analytics"
+                else -> ""
             }
-        }
+        }.attach()
 
         // Request notification permission for Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -146,7 +98,6 @@ class MainActivity : FragmentActivity() {
     }
     
     private fun checkLocationPermissionAndStart() {
-        // Request location permission if not granted
         if (!stateManager.locationConfig.hasLocationPermission()) {
             requestLocationPermissionLauncher.launch(
                 arrayOf(
@@ -156,122 +107,33 @@ class MainActivity : FragmentActivity() {
             )
         } else {
             startService()
-            observeState()
-            updateCurrentPlace()
-        }
-    }
-    
-    private fun updateCurrentPlace() {
-        lifecycleScope.launch {
-            val place = stateManager.locationConfig.getCurrentPlace()
-            currentPlaceDisplay.text = place.name
-            
-            // Also update the settings display for this place
-            baseDurationDisplay.text = place.baseDurationMinutes.toString()
-            incrementStepDisplay.text = place.incrementStepSeconds.toString()
-            
-            // Update increment counter for this place
-            val increment = stateManager.getIncrement(place.id)
-            counterText.text = "Cigarettes smoked: $increment"
         }
     }
 
     override fun onResume() {
         super.onResume()
-        Log.e("MainActivity", "onResume called")
-        updateCurrentPlace()
-        lifecycleScope.launch {
-            val isLocked = stateManager.getIsLocked()
-            if (isLocked) {
-                startPeriodicUpdate()
-            }
-        }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        stopPeriodicUpdate()
+        // Update config fragment when resuming
+        getConfigFragment()?.updateCurrentPlace()
     }
 
     private fun startService() {
         SmokeTimerService.start(this)
     }
-
-    private fun observeState() {
-        lifecycleScope.launch {
-            combine(
-                stateManager.isLocked,
-                stateManager.lockEndTimestamp,
-                stateManager.currentPlaceId
-            ) { isLocked, lockEndTimestamp, placeId ->
-                Triple(isLocked, lockEndTimestamp, placeId)
-            }.collect { (isLocked, lockEndTimestamp, placeId) ->
-                val increment = stateManager.getIncrement(placeId)
-                updateUI(isLocked, lockEndTimestamp, increment)  // lockEndTimestamp passed but not used in updateUI
-            }
-        }
+    
+    private fun getConfigFragment(): ConfigFragment? {
+        // Find ConfigFragment from ViewPager2
+        val fragments = supportFragmentManager.fragments
+        return fragments.filterIsInstance<ConfigFragment>().firstOrNull()
     }
 
-    private fun updateUI(isLocked: Boolean, _lockEndTimestamp: Long, increment: Long) {
-        Log.e("MainActivity", "UPDATE UI: isLocked=$isLocked, increment=$increment")
-
-        // Update counter (increment represents number of cigarettes smoked)
-        counterText.text = "Cigarettes smoked: $increment"
-
-        if (isLocked) {
-            Log.e("MainActivity", "UPDATE UI: Setting LOCKED state")
-            titleText.text = "🌿"
-            statusText.text = "Timer Locked"
-            timeText.visibility = TextView.VISIBLE
-            lockButton.visibility = View.GONE
-            startPeriodicUpdate()
-        } else {
-            Log.e("MainActivity", "UPDATE UI: Setting UNLOCKED state")
-            titleText.text = "🚬"
-            statusText.text = "Timer Unlocked"
-            timeText.visibility = View.GONE
-            lockButton.visibility = View.VISIBLE
-            stopPeriodicUpdate()
-        }
-
-        Log.e("MainActivity", "UPDATE UI: Completed")
-    }
-
-    private fun startPeriodicUpdate() {
-        stopPeriodicUpdate()
-        var runnable: Runnable? = null
-        runnable = Runnable {
-            lifecycleScope.launch {
-                val isLocked = stateManager.getIsLocked()
-                val lockEndTimestamp = stateManager.getLockEndTimestamp()
-                if (isLocked && lockEndTimestamp > 0) {
-                    val remaining = stateManager.getRemainingTimeFormatted(lockEndTimestamp)
-                    timeText.text = remaining
-                    val remainingMs = stateManager.getRemainingTimeMillis(lockEndTimestamp)
-                    if (remainingMs > 0) {
-                        runnable?.let { updateHandler.postDelayed(it, 1000) }
-                    } else {
-                        stateManager.unlock()
-                    }
-                }
-            }
-        }
-        updateRunnable = runnable
-        updateHandler.post(runnable)
-    }
-
-    private fun stopPeriodicUpdate() {
-        updateRunnable?.let { updateHandler.removeCallbacks(it) }
-        updateRunnable = null
-    }
-
-    private fun showBaseDurationPicker() {
+    // ConfigFragmentCallback implementations
+    override fun showBaseDurationPicker() {
         lifecycleScope.launch {
             val currentValue = stateManager.getBaseDurationMinutes().toInt()
             
             val picker = NumberPicker(this@MainActivity).apply {
                 minValue = 1
-                maxValue = 600  // 10 hours max
+                maxValue = 600
                 value = currentValue.coerceIn(1, 600)
                 wrapSelectorWheel = false
             }
@@ -283,7 +145,9 @@ class MainActivity : FragmentActivity() {
                     val selectedValue = picker.value.toLong()
                     lifecycleScope.launch {
                         stateManager.setBaseDurationMinutes(selectedValue)
-                        baseDurationDisplay.text = selectedValue.toString()
+                        // Delay to ensure API has processed the update and is readable
+                        kotlinx.coroutines.delay(500)
+                        getConfigFragment()?.updateSettings()
                     }
                 }
                 .setNegativeButton("Cancel", null)
@@ -291,13 +155,13 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun showIncrementStepPicker() {
+    override fun showIncrementStepPicker() {
         lifecycleScope.launch {
             val currentValue = stateManager.getIncrementStepSeconds().toInt()
             
             val picker = NumberPicker(this@MainActivity).apply {
                 minValue = 1
-                maxValue = 60  // 1 minute max
+                maxValue = 60
                 value = currentValue.coerceIn(1, 60)
                 wrapSelectorWheel = false
             }
@@ -309,7 +173,9 @@ class MainActivity : FragmentActivity() {
                     val selectedValue = picker.value.toLong()
                     lifecycleScope.launch {
                         stateManager.setIncrementStepSeconds(selectedValue)
-                        incrementStepDisplay.text = selectedValue.toString()
+                        // Delay to ensure API has processed the update and is readable
+                        kotlinx.coroutines.delay(500)
+                        getConfigFragment()?.updateSettings()
                     }
                 }
                 .setNegativeButton("Cancel", null)
@@ -317,7 +183,11 @@ class MainActivity : FragmentActivity() {
         }
     }
     
-    private fun showManagePlacesDialog() {
+    override fun updateCurrentPlace() {
+        getConfigFragment()?.updateCurrentPlace()
+    }
+    
+    override fun showManagePlacesDialog() {
         lifecycleScope.launch {
             val places = stateManager.locationConfig.getPlaces()
             val placeNames = places.map { it.name }.toTypedArray()
@@ -393,7 +263,7 @@ class MainActivity : FragmentActivity() {
                     val increment = incrementInput.text.toString().toLongOrNull() ?: 1L
                     
                     val place = Place(
-                        id = UUID.randomUUID().toString().take(8),
+                        id = name,  // Use name as ID
                         name = name,
                         latitude = selectedLat,
                         longitude = selectedLon,
@@ -403,7 +273,10 @@ class MainActivity : FragmentActivity() {
                     )
                     
                     lifecycleScope.launch {
-                        stateManager.locationConfig.savePlace(place)
+                        val (success, errorMessage) = stateManager.locationConfig.savePlace(place)
+                        if (!success && errorMessage != null) {
+                            Toast.makeText(this@MainActivity, errorMessage, Toast.LENGTH_LONG).show()
+                        }
                         updateCurrentPlace()
                     }
                 }
@@ -473,7 +346,10 @@ class MainActivity : FragmentActivity() {
                 )
                 
                 lifecycleScope.launch {
-                    stateManager.locationConfig.savePlace(updatedPlace)
+                    val (success, errorMessage) = stateManager.locationConfig.savePlace(updatedPlace)
+                    if (!success && errorMessage != null) {
+                        Toast.makeText(this@MainActivity, errorMessage, Toast.LENGTH_LONG).show()
+                    }
                     updateCurrentPlace()
                 }
             }
@@ -482,10 +358,10 @@ class MainActivity : FragmentActivity() {
                     .setTitle("Delete Place?")
                     .setMessage("Are you sure you want to delete ${place.name}?")
                     .setPositiveButton("Delete") { _, _ ->
-                        lifecycleScope.launch {
-                            stateManager.locationConfig.deletePlace(place.id)
-                            updateCurrentPlace()
-                        }
+                lifecycleScope.launch {
+                    stateManager.locationConfig.deletePlace(place.name)
+                    updateCurrentPlace()
+                }
                     }
                     .setNegativeButton("Cancel", null)
                     .show()

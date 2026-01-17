@@ -37,7 +37,7 @@ data class Place(
          */
         val DEFAULT = Place(
             id = "default",
-            name = "Default",
+            name = "default",
             latitude = 0.0,
             longitude = 0.0,
             radiusMeters = Double.MAX_VALUE,

@@ -25,6 +25,7 @@ class SmokeTimerService : LifecycleService() {
     private lateinit var stateManager: StateManager
     private lateinit var notificationManager: NotificationManager
     private var timeUpdateJob: Job? = null
+    private var abacusSyncJob: Job? = null
 
     companion object {
         private const val NOTIFICATION_ID = 1
@@ -47,6 +48,7 @@ class SmokeTimerService : LifecycleService() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification(false, 0L))
         observeState()
+        startAbacusSync() // Start periodic sync from Abacus
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -119,6 +121,30 @@ class SmokeTimerService : LifecycleService() {
     private fun stopTimeUpdate() {
         timeUpdateJob?.cancel()
         timeUpdateJob = null
+    }
+    
+    /**
+     * Periodically sync state FROM Abacus to detect external changes (e.g., from bash script)
+     */
+    private fun startAbacusSync() {
+        stopAbacusSync()
+        abacusSyncJob = lifecycleScope.launch {
+            while (isActive) {
+                delay(5000) // Check every 5 seconds
+                stateManager.syncFromAbacus()
+            }
+        }
+    }
+    
+    private fun stopAbacusSync() {
+        abacusSyncJob?.cancel()
+        abacusSyncJob = null
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        stopTimeUpdate()
+        stopAbacusSync()
     }
 
     private fun createNotification(isLocked: Boolean, lockEndTimestamp: Long = 0L): Notification {
