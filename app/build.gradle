@@ -61,6 +61,12 @@ dependencies {
     
     // Google Play Services Location
     implementation 'com.google.android.gms:play-services-location:21.1.0'
+    
+    // OpenStreetMap (free alternative to Google Maps - no API key needed!)
+    implementation 'org.osmdroid:osmdroid-android:6.1.18'
+    
+    // Fragment support
+    implementation 'androidx.fragment:fragment-ktx:1.6.2'
 }
 
 

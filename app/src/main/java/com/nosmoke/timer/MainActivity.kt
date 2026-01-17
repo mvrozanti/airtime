@@ -14,18 +14,19 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.app.AlertDialog
 import android.text.InputType
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.lifecycleScope
 import com.nosmoke.timer.data.Place
 import com.nosmoke.timer.data.StateManager
 import com.nosmoke.timer.service.SmokeTimerService
+import com.nosmoke.timer.ui.MapPickerDialog
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private lateinit var stateManager: StateManager
     private lateinit var statusText: TextView
@@ -346,27 +347,6 @@ class MainActivity : ComponentActivity() {
             }
             layout.addView(nameInput)
             
-            val latInput = EditText(this@MainActivity).apply {
-                hint = "Latitude"
-                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-                setText(location?.latitude?.toString() ?: "0.0")
-            }
-            layout.addView(latInput)
-            
-            val lonInput = EditText(this@MainActivity).apply {
-                hint = "Longitude"
-                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-                setText(location?.longitude?.toString() ?: "0.0")
-            }
-            layout.addView(lonInput)
-            
-            val radiusInput = EditText(this@MainActivity).apply {
-                hint = "Radius (meters)"
-                inputType = InputType.TYPE_CLASS_NUMBER
-                setText("100")
-            }
-            layout.addView(radiusInput)
-            
             val baseDurationInput = EditText(this@MainActivity).apply {
                 hint = "Base duration (minutes)"
                 inputType = InputType.TYPE_CLASS_NUMBER
@@ -381,23 +361,41 @@ class MainActivity : ComponentActivity() {
             }
             layout.addView(incrementInput)
             
+            var selectedLat = location?.latitude ?: 0.0
+            var selectedLon = location?.longitude ?: 0.0
+            var selectedRadius = 100.0
+            
+            val locationButton = Button(this@MainActivity).apply {
+                text = "Pick Location on Map"
+                setOnClickListener {
+                    val mapDialog = MapPickerDialog.newInstance(selectedLat, selectedLon, selectedRadius)
+                    mapDialog.setOnLocationSelectedListener(object : MapPickerDialog.OnLocationSelectedListener {
+                        override fun onLocationSelected(latitude: Double, longitude: Double, radiusMeters: Double) {
+                            selectedLat = latitude
+                            selectedLon = longitude
+                            selectedRadius = radiusMeters
+                            text = "Location: ${String.format("%.4f", latitude)}, ${String.format("%.4f", longitude)} (${radiusMeters.toInt()}m)"
+                        }
+                    })
+                    mapDialog.show(supportFragmentManager, "mapPicker")
+                }
+            }
+            layout.addView(locationButton)
+            
             AlertDialog.Builder(this@MainActivity)
                 .setTitle("Add New Place")
                 .setView(layout)
                 .setPositiveButton("Save") { _, _ ->
                     val name = nameInput.text.toString().ifEmpty { "Unnamed" }
-                    val lat = latInput.text.toString().toDoubleOrNull() ?: 0.0
-                    val lon = lonInput.text.toString().toDoubleOrNull() ?: 0.0
-                    val radius = radiusInput.text.toString().toDoubleOrNull() ?: 100.0
                     val baseDuration = baseDurationInput.text.toString().toLongOrNull() ?: 40L
                     val increment = incrementInput.text.toString().toLongOrNull() ?: 1L
                     
                     val place = Place(
                         id = UUID.randomUUID().toString().take(8),
                         name = name,
-                        latitude = lat,
-                        longitude = lon,
-                        radiusMeters = radius,
+                        latitude = selectedLat,
+                        longitude = selectedLon,
+                        radiusMeters = selectedRadius,
                         baseDurationMinutes = baseDuration,
                         incrementStepSeconds = increment
                     )
@@ -424,27 +422,6 @@ class MainActivity : ComponentActivity() {
         }
         layout.addView(nameInput)
         
-        val latInput = EditText(this).apply {
-            hint = "Latitude"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-            setText(place.latitude.toString())
-        }
-        layout.addView(latInput)
-        
-        val lonInput = EditText(this).apply {
-            hint = "Longitude"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-            setText(place.longitude.toString())
-        }
-        layout.addView(lonInput)
-        
-        val radiusInput = EditText(this).apply {
-            hint = "Radius (meters)"
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setText(place.radiusMeters.toInt().toString())
-        }
-        layout.addView(radiusInput)
-        
         val baseDurationInput = EditText(this).apply {
             hint = "Base duration (minutes)"
             inputType = InputType.TYPE_CLASS_NUMBER
@@ -459,15 +436,36 @@ class MainActivity : ComponentActivity() {
         }
         layout.addView(incrementInput)
         
+        var selectedLat = place.latitude
+        var selectedLon = place.longitude
+        var selectedRadius = place.radiusMeters
+        
+        val locationButton = Button(this).apply {
+            text = "Location: ${String.format("%.4f", place.latitude)}, ${String.format("%.4f", place.longitude)} (${place.radiusMeters.toInt()}m)"
+            setOnClickListener {
+                val mapDialog = MapPickerDialog.newInstance(selectedLat, selectedLon, selectedRadius)
+                mapDialog.setOnLocationSelectedListener(object : MapPickerDialog.OnLocationSelectedListener {
+                    override fun onLocationSelected(latitude: Double, longitude: Double, radiusMeters: Double) {
+                        selectedLat = latitude
+                        selectedLon = longitude
+                        selectedRadius = radiusMeters
+                        text = "Location: ${String.format("%.4f", latitude)}, ${String.format("%.4f", longitude)} (${radiusMeters.toInt()}m)"
+                    }
+                })
+                mapDialog.show(supportFragmentManager, "mapPicker")
+            }
+        }
+        layout.addView(locationButton)
+        
         AlertDialog.Builder(this)
             .setTitle("Edit Place: ${place.name}")
             .setView(layout)
             .setPositiveButton("Save") { _, _ ->
                 val updatedPlace = place.copy(
                     name = nameInput.text.toString().ifEmpty { place.name },
-                    latitude = latInput.text.toString().toDoubleOrNull() ?: place.latitude,
-                    longitude = lonInput.text.toString().toDoubleOrNull() ?: place.longitude,
-                    radiusMeters = radiusInput.text.toString().toDoubleOrNull() ?: place.radiusMeters,
+                    latitude = selectedLat,
+                    longitude = selectedLon,
+                    radiusMeters = selectedRadius,
                     baseDurationMinutes = baseDurationInput.text.toString().toLongOrNull() ?: place.baseDurationMinutes,
                     incrementStepSeconds = incrementInput.text.toString().toLongOrNull() ?: place.incrementStepSeconds
                 )
