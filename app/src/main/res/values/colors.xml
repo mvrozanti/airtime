@@ -29,6 +29,10 @@
     <!-- Standard colors -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    
+    <!-- Error colors -->
+    <color name="error">#F44336</color>
+    <color name="error_light">#EF5350</color>
 </resources>
 
 

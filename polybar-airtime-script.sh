@@ -5,16 +5,15 @@
 # Uses local cache to handle intermittent Abacus unavailability
 #
 # Usage:
-#   SMOKE_PLACE_NAME="Home" ./polybar-airtime-script.sh           # Display emoji
-#   SMOKE_PLACE_NAME="Home" ./polybar-airtime-script.sh click-left   # Lock timer
-#   SMOKE_PLACE_NAME="Home" ./polybar-airtime-script.sh click-middle # Show remaining time
+#   ./polybar-airtime-script.sh              # Display emoji
+#   ./polybar-airtime-script.sh click-left   # Lock timer
+#   ./polybar-airtime-script.sh click-middle # Show remaining time
 
 # Configuration
 ABACUS_BASE_URL="https://abacus.jasoncameron.dev"
 ABACUS_NAMESPACE="airtime"
-# IMPORTANT: Place name must match EXACTLY (case-sensitive) with the place name in the Android app
-# Example: If app has "Home", use SMOKE_PLACE_NAME="Home" (not "home")
-PLACE_NAME="${SMOKE_PLACE_NAME:-default}"  # Use "default" or set SMOKE_PLACE_NAME env var
+# Place name - hardcoded to "Unknown" (must match Android app's STATE_PLACE)
+PLACE_NAME="Unknown"
 
 ADMIN_KEYS_FILE="/tmp/smoke_timer_admin_keys"  # Store admin keys for writing to Abacus
 CACHE_DIR="/tmp/smoke_timer_cache"
@@ -216,11 +215,11 @@ get_state_from_abacus() {
     # Get lock state from Abacus - source of truth
     local locked_value=$(abacus_get "${PLACE_NAME}_is_locked")
     if [ $? -ne 0 ] || [ -z "$locked_value" ]; then
-        # Abacus unavailable - try cache
+        # Abacus unavailable or key not found - try cache
         locked_value=$(cache_get "${PLACE_NAME}_is_locked" 2>/dev/null || echo "")
         if [ -z "$locked_value" ]; then
-            # No cache either - can't determine state
-            return 1
+            # No cache either - default to unlocked (key doesn't exist yet)
+            locked_value="0"
         fi
     fi
     

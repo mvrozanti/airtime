@@ -194,6 +194,82 @@ class AnalyticsManager(private val context: Context) {
     }
     
     /**
+     * Get average gap between smokes per hour of day (0-23)
+     * Returns a list of 24 average gaps in milliseconds, one for each hour
+     * Gaps are calculated from smokes that occurred in that hour
+     */
+    suspend fun getGapsPerHour(): List<Long?> {
+        val events = getEvents().sortedBy { it.timestamp }
+        if (events.size < 2) return List(24) { null }
+        
+        val gapsByHour = mutableMapOf<Int, MutableList<Long>>()
+        
+        // Calculate gaps between consecutive events
+        for (i in 1 until events.size) {
+            val gap = events[i].timestamp - events[i - 1].timestamp
+            // Gap is attributed to the hour of the FIRST smoke (event[i-1])
+            val calendar = Calendar.getInstance()
+            calendar.timeInMillis = events[i - 1].timestamp
+            val hour = calendar.get(Calendar.HOUR_OF_DAY)
+            
+            gapsByHour.getOrPut(hour) { mutableListOf() }.add(gap)
+        }
+        
+        // Calculate average gap for each hour
+        return (0..23).map { hour ->
+            gapsByHour[hour]?.average()?.toLong()
+        }
+    }
+    
+    /**
+     * Get smoke count by day of week (0=Sunday, 6=Saturday)
+     * Returns a list of 7 counts, one for each day
+     */
+    suspend fun getCountByDayOfWeek(): List<Int> {
+        val events = getEvents()
+        val dayCounts = IntArray(7) { 0 }
+        
+        events.forEach { event ->
+            val calendar = Calendar.getInstance()
+            calendar.timeInMillis = event.timestamp
+            val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK) // 1=Sunday, 7=Saturday
+            val index = (dayOfWeek - 1) % 7 // Convert to 0-6 (Sunday=0, Saturday=6)
+            dayCounts[index]++
+        }
+        
+        return dayCounts.toList()
+    }
+    
+    /**
+     * Get average gap between smokes per day of week (0=Sunday, 6=Saturday)
+     * Returns a list of 7 average gaps in milliseconds, one for each day
+     * Gaps are calculated from smokes that occurred on that day
+     */
+    suspend fun getGapsPerDayOfWeek(): List<Long?> {
+        val events = getEvents().sortedBy { it.timestamp }
+        if (events.size < 2) return List(7) { null }
+        
+        val gapsByDay = mutableMapOf<Int, MutableList<Long>>()
+        
+        // Calculate gaps between consecutive events
+        for (i in 1 until events.size) {
+            val gap = events[i].timestamp - events[i - 1].timestamp
+            // Gap is attributed to the day of the FIRST smoke (event[i-1])
+            val calendar = Calendar.getInstance()
+            calendar.timeInMillis = events[i - 1].timestamp
+            val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK) // 1=Sunday, 7=Saturday
+            val dayIndex = (dayOfWeek - 1) % 7 // Convert to 0-6 (Sunday=0, Saturday=6)
+            
+            gapsByDay.getOrPut(dayIndex) { mutableListOf() }.add(gap)
+        }
+        
+        // Calculate average gap for each day
+        return (0..6).map { dayIndex ->
+            gapsByDay[dayIndex]?.average()?.toLong()
+        }
+    }
+    
+    /**
      * Format milliseconds to human readable string
      */
     fun formatDuration(millis: Long): String {
@@ -208,6 +284,19 @@ class AnalyticsManager(private val context: Context) {
             minutes > 0 -> "${minutes}m ${seconds % 60}s"
             else -> "${seconds}s"
         }
+    }
+    
+    /**
+     * Clear all analytics data
+     */
+    suspend fun clearAll() {
+        context.analyticsStore.edit { preferences ->
+            preferences.remove(EVENTS_KEY)
+            preferences.remove(FIRST_SMOKE_KEY)
+            preferences.remove(LAST_SMOKE_KEY)
+            preferences.remove(TOTAL_COUNT_KEY)
+        }
+        Log.d(TAG, "Cleared all analytics data")
     }
 }
 

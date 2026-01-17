@@ -36,12 +36,12 @@ data class Place(
          * Default place used when user is not within any defined place
          */
         val DEFAULT = Place(
-            id = "default",
-            name = "default",
+            id = "Unknown",
+            name = "Unknown",
             latitude = 0.0,
             longitude = 0.0,
             radiusMeters = Double.MAX_VALUE,
-            baseDurationMinutes = 40L,
+            baseDurationMinutes = 45L,
             incrementStepSeconds = 1L
         )
         

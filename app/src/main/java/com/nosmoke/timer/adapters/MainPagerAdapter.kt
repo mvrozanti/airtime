@@ -6,13 +6,14 @@ import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.nosmoke.timer.data.StateManager
 import com.nosmoke.timer.fragments.AnalyticsFragment
 import com.nosmoke.timer.fragments.ConfigFragment
+import com.nosmoke.timer.fragments.PlacesFragment
 
 class MainPagerAdapter(
     fragmentActivity: FragmentActivity,
     private val stateManager: StateManager
 ) : FragmentStateAdapter(fragmentActivity) {
     
-    override fun getItemCount(): Int = 2
+    override fun getItemCount(): Int = 3
     
     override fun createFragment(position: Int): Fragment {
         return when (position) {
@@ -21,7 +22,12 @@ class MainPagerAdapter(
                 fragment.setStateManager(stateManager)
                 fragment
             }
-            1 -> AnalyticsFragment()
+            1 -> {
+                val fragment = PlacesFragment()
+                fragment.setStateManager(stateManager)
+                fragment
+            }
+            2 -> AnalyticsFragment()
             else -> throw IllegalArgumentException("Invalid position: $position")
         }
     }

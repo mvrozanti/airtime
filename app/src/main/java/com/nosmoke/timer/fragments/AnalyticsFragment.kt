@@ -31,6 +31,9 @@ class AnalyticsFragment : Fragment() {
     private lateinit var monthCount: TextView
     private lateinit var monthAvg: TextView
     private lateinit var hourlyHistogramContainer: LinearLayout
+    private lateinit var gapsPerHourContainer: LinearLayout
+    private lateinit var countsPerDayContainer: LinearLayout
+    private lateinit var gapsPerDayContainer: LinearLayout
     private lateinit var placesContainer: LinearLayout
     
     private val updateHandler = Handler(Looper.getMainLooper())
@@ -59,6 +62,9 @@ class AnalyticsFragment : Fragment() {
         monthCount = view.findViewById(R.id.monthCount)
         monthAvg = view.findViewById(R.id.monthAvg)
         hourlyHistogramContainer = view.findViewById(R.id.hourlyHistogramContainer)
+        gapsPerHourContainer = view.findViewById(R.id.gapsPerHourContainer)
+        countsPerDayContainer = view.findViewById(R.id.countsPerDayContainer)
+        gapsPerDayContainer = view.findViewById(R.id.gapsPerDayContainer)
         placesContainer = view.findViewById(R.id.placesContainer)
         
         loadAnalytics()
@@ -116,6 +122,15 @@ class AnalyticsFragment : Fragment() {
             
             // Hourly histogram
             loadHourlyHistogram()
+            
+            // Gaps per hour
+            loadGapsPerHour()
+            
+            // Counts per day of week
+            loadCountsPerDayOfWeek()
+            
+            // Gaps per day of week
+            loadGapsPerDayOfWeek()
         }
     }
     
@@ -266,6 +281,221 @@ class AnalyticsFragment : Fragment() {
                 placeRow.addView(nameText)
                 placeRow.addView(countText)
                 placesContainer.addView(placeRow)
+            }
+        }
+    }
+    
+    private fun loadGapsPerHour() {
+        lifecycleScope.launch {
+            gapsPerHourContainer.removeAllViews()
+            val gapsPerHour = analyticsManager.getGapsPerHour()
+            
+            if (gapsPerHour.all { it == null }) {
+                val emptyText = TextView(requireContext()).apply {
+                    text = "No gap data yet"
+                    textSize = 14f
+                    setTextColor(ContextCompat.getColor(requireContext(), R.color.text_tertiary))
+                    setPadding(0, 8, 0, 8)
+                }
+                gapsPerHourContainer.addView(emptyText)
+                return@launch
+            }
+            
+            val density = resources.displayMetrics.density
+            
+            gapsPerHour.forEachIndexed { hour, avgGap ->
+                if (avgGap != null) {
+                    val hourRow = LinearLayout(requireContext()).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                    }
+                    
+                    val hourLabel = TextView(requireContext()).apply {
+                        text = String.format("%02d:00", hour)
+                        textSize = 11f
+                        setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
+                        layoutParams = LinearLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            width = (60 * density).toInt()
+                        }
+                    }
+                    
+                    val gapText = TextView(requireContext()).apply {
+                        text = analyticsManager.formatDuration(avgGap)
+                        textSize = 12f
+                        setTextColor(ContextCompat.getColor(requireContext(), R.color.text_primary))
+                        layoutParams = LinearLayout.LayoutParams(
+                            0,
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                            1f
+                        ).apply {
+                            setMargins((8 * density).toInt(), 0, (8 * density).toInt(), 0)
+                        }
+                    }
+                    
+                    hourRow.addView(hourLabel)
+                    hourRow.addView(gapText)
+                    gapsPerHourContainer.addView(hourRow)
+                }
+            }
+        }
+    }
+    
+    private fun loadCountsPerDayOfWeek() {
+        lifecycleScope.launch {
+            countsPerDayContainer.removeAllViews()
+            val countsPerDay = analyticsManager.getCountByDayOfWeek()
+            val dayNames = arrayOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+            
+            if (countsPerDay.all { it == 0 }) {
+                val emptyText = TextView(requireContext()).apply {
+                    text = "No daily data yet"
+                    textSize = 14f
+                    setTextColor(ContextCompat.getColor(requireContext(), R.color.text_tertiary))
+                    setPadding(0, 8, 0, 8)
+                }
+                countsPerDayContainer.addView(emptyText)
+                return@launch
+            }
+            
+            val maxCount = countsPerDay.maxOrNull() ?: 1
+            val density = resources.displayMetrics.density
+            
+            countsPerDay.forEachIndexed { dayIndex, count ->
+                val dayRow = LinearLayout(requireContext()).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                }
+                
+                val dayLabel = TextView(requireContext()).apply {
+                    text = dayNames[dayIndex]
+                    textSize = 11f
+                    setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
+                    layoutParams = LinearLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        width = (60 * density).toInt()
+                    }
+                }
+                
+                val barContainer = LinearLayout(requireContext()).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        0,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                        1f
+                    ).apply {
+                        setMargins((8 * density).toInt(), 0, (8 * density).toInt(), 0)
+                    }
+                }
+                
+                val barWidth = if (maxCount > 0 && count > 0) {
+                    val maxBarWidth = 200 * density
+                    val width = (count.toFloat() / maxCount * maxBarWidth).coerceAtLeast(4f * density)
+                    width.toInt()
+                } else {
+                    0
+                }
+                
+                val bar = View(requireContext()).apply {
+                    if (barWidth > 0) {
+                        val drawable = android.graphics.drawable.GradientDrawable().apply {
+                            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                            setColor(ContextCompat.getColor(requireContext(), R.color.primary))
+                            cornerRadius = 4f * density
+                        }
+                        background = drawable
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        barWidth,
+                        (20 * density).toInt()
+                    )
+                    visibility = if (barWidth > 0) View.VISIBLE else View.GONE
+                }
+                
+                val countLabel = TextView(requireContext()).apply {
+                    text = count.toString()
+                    textSize = 12f
+                    setTextColor(ContextCompat.getColor(requireContext(), R.color.text_primary))
+                    layoutParams = LinearLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        width = (30 * density).toInt()
+                    }
+                    gravity = android.view.Gravity.END
+                }
+                
+                barContainer.addView(bar)
+                dayRow.addView(dayLabel)
+                dayRow.addView(barContainer)
+                dayRow.addView(countLabel)
+                countsPerDayContainer.addView(dayRow)
+            }
+        }
+    }
+    
+    private fun loadGapsPerDayOfWeek() {
+        lifecycleScope.launch {
+            gapsPerDayContainer.removeAllViews()
+            val gapsPerDay = analyticsManager.getGapsPerDayOfWeek()
+            val dayNames = arrayOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+            
+            if (gapsPerDay.all { it == null }) {
+                val emptyText = TextView(requireContext()).apply {
+                    text = "No gap data yet"
+                    textSize = 14f
+                    setTextColor(ContextCompat.getColor(requireContext(), R.color.text_tertiary))
+                    setPadding(0, 8, 0, 8)
+                }
+                gapsPerDayContainer.addView(emptyText)
+                return@launch
+            }
+            
+            val density = resources.displayMetrics.density
+            
+            gapsPerDay.forEachIndexed { dayIndex, avgGap ->
+                if (avgGap != null) {
+                    val dayRow = LinearLayout(requireContext()).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                    }
+                    
+                    val dayLabel = TextView(requireContext()).apply {
+                        text = dayNames[dayIndex]
+                        textSize = 11f
+                        setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
+                        layoutParams = LinearLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            width = (60 * density).toInt()
+                        }
+                    }
+                    
+                    val gapText = TextView(requireContext()).apply {
+                        text = analyticsManager.formatDuration(avgGap)
+                        textSize = 12f
+                        setTextColor(ContextCompat.getColor(requireContext(), R.color.text_primary))
+                        layoutParams = LinearLayout.LayoutParams(
+                            0,
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                            1f
+                        ).apply {
+                            setMargins((8 * density).toInt(), 0, (8 * density).toInt(), 0)
+                        }
+                    }
+                    
+                    dayRow.addView(dayLabel)
+                    dayRow.addView(gapText)
+                    gapsPerDayContainer.addView(dayRow)
+                }
             }
         }
     }

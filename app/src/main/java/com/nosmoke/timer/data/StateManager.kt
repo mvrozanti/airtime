@@ -27,17 +27,20 @@ import com.nosmoke.timer.service.AlarmReceiver
 import com.nosmoke.timer.service.AbacusService
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "smoke_timer_state")
-private val Context.abacusAdminKeysStore: DataStore<Preferences> by preferencesDataStore(name = "abacus_admin_keys")
+// Internal so LocationConfig can access it - must be defined only once to avoid multiple DataStore instances
+internal val Context.abacusAdminKeysStore: DataStore<Preferences> by preferencesDataStore(name = "abacus_admin_keys")
 
 class StateManager(private val context: Context) {
-    // Background scope for non-blocking Abacus sync operations
     private val backgroundScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    // Handler for showing Toasts from background threads
     private val mainHandler = Handler(Looper.getMainLooper())
     
-    /**
-     * Show a Toast message (works from any thread)
-     */
+    // Timestamp of last local lock - used to ignore stale Abacus data
+    @Volatile
+    private var lastLocalLockTime: Long = 0
+    
+    // Grace period after lock before accepting unlocks from Abacus (in ms)
+    private val SYNC_GRACE_PERIOD_MS = 15_000L  // 15 seconds
+    
     private fun showToast(message: String, duration: Int = Toast.LENGTH_SHORT) {
         mainHandler.post {
             Toast.makeText(context, message, duration).show()
@@ -45,14 +48,15 @@ class StateManager(private val context: Context) {
     }
     
     companion object {
+        // Fixed place name for ALL state - keeps everything consistent with polybar script
+        // State is location-independent - only duration config varies by location
+        const val STATE_PLACE = "Unknown"
+        
         private val IS_LOCKED_KEY = booleanPreferencesKey("is_locked")
         private val LOCK_END_TIMESTAMP_KEY = longPreferencesKey("lock_end_timestamp")
         private val CURRENT_PLACE_ID_KEY = stringPreferencesKey("current_place_id")
         
-        // Increment keys are now per-place, stored as {placeId}_increment
         private fun incrementKey(placeId: String) = longPreferencesKey("${placeId}_increment")
-        
-        // Admin keys for Abacus counters, stored as {placeId}_{key}_admin
         private fun adminKeyKey(placeId: String, key: String) = stringPreferencesKey("${placeId}_${key}_admin")
     }
     
@@ -70,25 +74,15 @@ class StateManager(private val context: Context) {
         preferences[CURRENT_PLACE_ID_KEY] ?: Place.DEFAULT.name
     }
 
-    /**
-     * Get increment for a specific place
-     */
     suspend fun getIncrement(placeId: String): Long {
         val key = incrementKey(placeId)
         return context.dataStore.data.map { it[key] ?: 0L }.first()
     }
     
-    /**
-     * Get increment for the current place
-     */
     suspend fun getCurrentIncrement(): Long {
-        val place = locationConfig.getCurrentPlace()
-        return getIncrement(place.name)
+        return getIncrement(STATE_PLACE)
     }
 
-    /**
-     * Flow of increment for the current place (updates when place changes)
-     */
     fun incrementFlow(placeId: String): Flow<Long> {
         val key = incrementKey(placeId)
         return context.dataStore.data.map { preferences ->
@@ -109,145 +103,100 @@ class StateManager(private val context: Context) {
     }
     
     /**
-     * Get base duration for the current place
-     * Always reads from Abacus - NO FALLBACK to local values
-     * Returns null if Abacus is unavailable
+     * Get base duration from current location-based place (or Unknown)
      */
     suspend fun getBaseDurationMinutes(): Long? {
         val place = locationConfig.getCurrentPlace()
-        // Try Abacus (check v2, then v1, then old format for compatibility)
-        val abacusValue = AbacusService.getValue(place.name, "base_duration_minutes_config_v2")
+        return AbacusService.getValue(place.name, "base_duration_minutes_config_v2")
             ?: AbacusService.getValue(place.name, "base_duration_minutes_config")
             ?: AbacusService.getValue(place.name, "base_duration_minutes")
-        // Return null if Abacus unavailable - NO FALLBACK
-        return abacusValue
     }
     
     /**
-     * Get increment step for the current place
-     * Always reads from Abacus - NO FALLBACK to local values
-     * Returns null if Abacus is unavailable
+     * Get increment step from current location-based place (or Unknown)
      */
     suspend fun getIncrementStepSeconds(): Long? {
         val place = locationConfig.getCurrentPlace()
-        // Try Abacus (check v2, then v1, then old format for compatibility)
-        val abacusValue = AbacusService.getValue(place.name, "increment_step_seconds_config_v2")
+        return AbacusService.getValue(place.name, "increment_step_seconds_config_v2")
             ?: AbacusService.getValue(place.name, "increment_step_seconds_config")
             ?: AbacusService.getValue(place.name, "increment_step_seconds")
-        // Return null if Abacus unavailable - NO FALLBACK
-        return abacusValue
     }
     
-    /**
-     * Set base duration for the current place (stores to Abacus)
-     */
     suspend fun setBaseDurationMinutes(minutes: Long) {
         val place = locationConfig.getCurrentPlace()
-        // Ensure counter exists and get admin key
         var adminKey = getAdminKey(place.name, "base_duration_minutes_config_v2")
         if (adminKey == null) {
-            // Try to create the counter
-            Log.d("StateManager", "No admin key found, creating counter for base_duration_minutes_config_v2")
             adminKey = AbacusService.createCounter(place.name, "base_duration_minutes_config_v2")
             if (adminKey != null) {
                 storeAdminKey(place.name, "base_duration_minutes_config_v2", adminKey)
-            } else {
-                Log.w("StateManager", "Failed to create counter for base_duration_minutes_config_v2, cannot set value")
-                return
             }
         }
-        val success = AbacusService.setValue(place.name, "base_duration_minutes_config_v2", minutes, adminKey)
-        if (!success) {
-            Log.w("StateManager", "Failed to set base_duration_minutes_config_v2, clearing admin key and retrying")
-            // Clear admin key and try to recreate
-            clearAdminKey(place.name, "base_duration_minutes_config_v2")
-            val newAdminKey = AbacusService.createCounter(place.name, "base_duration_minutes_config_v2")
-            if (newAdminKey != null) {
-                storeAdminKey(place.name, "base_duration_minutes_config_v2", newAdminKey)
-                val retrySuccess = AbacusService.setValue(place.name, "base_duration_minutes_config_v2", minutes, newAdminKey)
-                if (!retrySuccess) {
-                    showToast("Failed to sync base duration to Abacus", Toast.LENGTH_LONG)
-                }
-            } else {
-                showToast("Failed to create counter for base duration", Toast.LENGTH_LONG)
+        if (adminKey != null) {
+            val success = AbacusService.setValue(place.name, "base_duration_minutes_config_v2", minutes, adminKey)
+            if (!success) {
+                showToast("Failed to sync base duration", Toast.LENGTH_LONG)
             }
-        } else {
-            Log.d("StateManager", "Successfully set base_duration_minutes_config_v2 to $minutes")
         }
     }
     
-    /**
-     * Set increment step for the current place (stores to Abacus)
-     */
     suspend fun setIncrementStepSeconds(seconds: Long) {
         val place = locationConfig.getCurrentPlace()
-        // Ensure counter exists and get admin key
         var adminKey = getAdminKey(place.name, "increment_step_seconds_config_v2")
         if (adminKey == null) {
-            // Try to create the counter
-            Log.d("StateManager", "No admin key found, creating counter for increment_step_seconds_config_v2")
             adminKey = AbacusService.createCounter(place.name, "increment_step_seconds_config_v2")
             if (adminKey != null) {
                 storeAdminKey(place.name, "increment_step_seconds_config_v2", adminKey)
-            } else {
-                Log.w("StateManager", "Failed to create counter for increment_step_seconds_config_v2, cannot set value")
-                return
             }
         }
-        val success = AbacusService.setValue(place.name, "increment_step_seconds_config_v2", seconds, adminKey)
-        if (!success) {
-            Log.w("StateManager", "Failed to set increment_step_seconds_config_v2, clearing admin key and retrying")
-            // Clear admin key and try to recreate
-            clearAdminKey(place.name, "increment_step_seconds_config_v2")
-            val newAdminKey = AbacusService.createCounter(place.name, "increment_step_seconds_config_v2")
-            if (newAdminKey != null) {
-                storeAdminKey(place.name, "increment_step_seconds_config_v2", newAdminKey)
-                val retrySuccess = AbacusService.setValue(place.name, "increment_step_seconds_config_v2", seconds, newAdminKey)
-                if (!retrySuccess) {
-                    showToast("Failed to sync increment step to Abacus", Toast.LENGTH_LONG)
-                }
-            } else {
-                showToast("Failed to create counter for increment step", Toast.LENGTH_LONG)
+        if (adminKey != null) {
+            val success = AbacusService.setValue(place.name, "increment_step_seconds_config_v2", seconds, adminKey)
+            if (!success) {
+                showToast("Failed to sync increment step", Toast.LENGTH_LONG)
             }
-        } else {
-            Log.d("StateManager", "Successfully set increment_step_seconds_config_v2 to $seconds")
         }
     }
 
+    /**
+     * LOCK - Instant UI update, background sync to Abacus
+     * Uses current location-based place for duration config, but STATE_PLACE for state
+     */
     suspend fun lock() {
-        val place = locationConfig.getCurrentPlace()
-        val currentIncrement = getIncrement(place.name)
-        val baseDurationMinutes = getBaseDurationMinutes() 
-            ?: throw IllegalStateException("Cannot get base duration from Abacus - Abacus unavailable")
-        val incrementStepSeconds = getIncrementStepSeconds()
-            ?: throw IllegalStateException("Cannot get increment step from Abacus - Abacus unavailable")
+        val currentIncrement = getIncrement(STATE_PLACE)
+        
+        // Get duration config from current location-based place (or Unknown if no match)
+        val currentPlace = locationConfig.getCurrentPlace()
+        val baseDurationMinutes = getBaseDurationMinutes() ?: currentPlace.baseDurationMinutes
+        val incrementStepSeconds = getIncrementStepSeconds() ?: currentPlace.incrementStepSeconds
+        
+        Log.d("StateManager", "LOCK: place=${currentPlace.name} (config), state=$STATE_PLACE, base=${baseDurationMinutes}min, step=${incrementStepSeconds}s, increment=$currentIncrement")
+        
         val baseDurationMs = baseDurationMinutes * 60 * 1000
-        val lockDuration = baseDurationMs + (currentIncrement * incrementStepSeconds * 1000)
+        val incrementDurationMs = currentIncrement * incrementStepSeconds * 1000
+        val lockDuration = baseDurationMs + incrementDurationMs
         val lockEndTime = System.currentTimeMillis() + lockDuration
         val newIncrement = currentIncrement + 1
 
-        Log.e("StateManager", "LOCKING TIMER: place=${place.name}, increment=$currentIncrement, duration=$lockDuration ms, endTime=$lockEndTime")
-        Log.e("StateManager", "LOCKING TIMER: About to edit DataStore...")
+        Log.d("StateManager", "LOCK: duration=${lockDuration}ms (${lockDuration / 60000}min), endTime=$lockEndTime")
 
-        val incrementKey = incrementKey(place.name)
+        // Record when we locked locally - ignore Abacus unlocks for a grace period
+        lastLocalLockTime = System.currentTimeMillis()
+
+        // INSTANT UI UPDATE
+        val incrementKey = incrementKey(STATE_PLACE)
         context.dataStore.edit { preferences ->
-            Log.e("StateManager", "LOCKING TIMER: Inside DataStore edit block")
             preferences[IS_LOCKED_KEY] = true
             preferences[LOCK_END_TIMESTAMP_KEY] = lockEndTime
-            preferences[CURRENT_PLACE_ID_KEY] = place.name
+            preferences[CURRENT_PLACE_ID_KEY] = STATE_PLACE
             preferences[incrementKey] = newIncrement
-            Log.e("StateManager", "LOCKING TIMER: DataStore values set")
         }
 
-        // Schedule alarm for auto-unlock
+        // Schedule alarm
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             action = "com.airtime.timer.UNLOCK"
         }
         val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            0,
-            intent,
+            context, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
@@ -257,127 +206,171 @@ class StateManager(private val context: Context) {
             alarmManager.setExact(AlarmManager.RTC_WAKEUP, lockEndTime, pendingIntent)
         }
 
-        // Track lock with Abacus (fire and forget)
-        AbacusService.trackLock(place.name)
-        
-        // Sync lock state to Abacus (non-blocking, fire and forget)
+        // Analytics
+        AbacusService.trackLock(STATE_PLACE)
+        val analyticsManager = AnalyticsManager(context)
+        analyticsManager.recordSmoke(STATE_PLACE, STATE_PLACE)
+
+        // BACKGROUND SYNC TO ABACUS (fire and forget - no rollback)
         backgroundScope.launch {
-            syncLockStateToAbacus(place.name, true, lockEndTime, newIncrement)
+            syncToAbacus(STATE_PLACE, true, lockEndTime, newIncrement)
         }
         
-        // Record analytics event
-        val analyticsManager = AnalyticsManager(context)
-        analyticsManager.recordSmoke(place.name, place.name)
-
-        Log.e("StateManager", "TIMER LOCKED SUCCESSFULLY - Alarm scheduled for unlock")
+        Log.d("StateManager", "LOCK COMPLETE - UI updated, syncing to Abacus in background")
     }
 
+    /**
+     * UNLOCK - Instant UI update, background sync to Abacus
+     */
     suspend fun unlock() {
-        Log.d("StateManager", "Unlocking timer")
-        val place = locationConfig.getCurrentPlace()
+        Log.d("StateManager", "UNLOCK")
+        
+        // INSTANT UI UPDATE
         context.dataStore.edit { preferences ->
             preferences[IS_LOCKED_KEY] = false
-            preferences[LOCK_END_TIMESTAMP_KEY] = 0L // Clear end timestamp on unlock
+            preferences[LOCK_END_TIMESTAMP_KEY] = 0L
         }
         
-        // Sync unlock state to Abacus (non-blocking, fire and forget)
+        // Cancel alarm
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = "com.airtime.timer.UNLOCK"
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        alarmManager.cancel(pendingIntent)
+        
+        // BACKGROUND SYNC TO ABACUS
         backgroundScope.launch {
-            syncLockStateToAbacus(place.name, false, 0L)
+            syncToAbacus(STATE_PLACE, false, 0L, null)
         }
     }
     
     /**
-     * Sync lock state to Abacus
+     * Sync state TO Abacus (background, no UI blocking)
      */
-    private suspend fun syncLockStateToAbacus(placeId: String, isLocked: Boolean, lockEndTimestamp: Long, increment: Long? = null) {
-        var hasErrors = false
-        val errorMessages = mutableListOf<String>()
+    private suspend fun syncToAbacus(placeId: String, isLocked: Boolean, lockEndTimestamp: Long, increment: Long?) {
+        Log.d("StateManager", "syncToAbacus: place=$placeId, locked=$isLocked, timestamp=$lockEndTimestamp")
         
-        // Ensure counters exist and get admin keys
-        val isLockedAdminKey = ensureStateCounterExists(placeId, "is_locked")
-        val lockEndAdminKey = ensureStateCounterExists(placeId, "lock_end_timestamp")
+        // Get or create admin keys
+        val isLockedAdminKey = getOrCreateAdminKey(placeId, "is_locked")
+        val timestampAdminKey = getOrCreateAdminKey(placeId, "lock_end_timestamp")
         
-        // Sync is_locked state
+        // Sync is_locked
         if (isLockedAdminKey != null) {
             val lockedValue = if (isLocked) 1L else 0L
-            val success = AbacusService.setValue(placeId, "is_locked", lockedValue, isLockedAdminKey)
-            if (!success) {
-                hasErrors = true
-                errorMessages.add("Failed to sync lock state")
-            }
-        } else {
-            hasErrors = true
-            errorMessages.add("No admin key for lock state")
+            AbacusService.setValue(placeId, "is_locked", lockedValue, isLockedAdminKey)
         }
         
-        // Sync lock_end_timestamp
-        if (lockEndAdminKey != null) {
-            val success = AbacusService.setValue(placeId, "lock_end_timestamp", lockEndTimestamp, lockEndAdminKey)
-            if (!success) {
-                hasErrors = true
-                errorMessages.add("Failed to sync lock timestamp")
-            }
-        } else {
-            hasErrors = true
-            errorMessages.add("No admin key for lock timestamp")
+        // Sync timestamp
+        if (timestampAdminKey != null) {
+            AbacusService.setValue(placeId, "lock_end_timestamp", lockEndTimestamp, timestampAdminKey)
         }
         
-        // Sync increment if provided
+        // Sync increment (optional - don't fail if this doesn't work)
         if (increment != null) {
-            val incrementAdminKey = ensureStateCounterExists(placeId, "increment")
+            val incrementAdminKey = getOrCreateAdminKey(placeId, "increment")
             if (incrementAdminKey != null) {
-                val success = AbacusService.setValue(placeId, "increment", increment, incrementAdminKey)
-                if (!success) {
-                    hasErrors = true
-                    errorMessages.add("Failed to sync increment")
-                }
-            } else {
-                hasErrors = true
-                errorMessages.add("No admin key for increment")
+                AbacusService.setValue(placeId, "increment", increment, incrementAdminKey)
             }
         }
         
-        // Show error toast if any failures occurred
-        if (hasErrors) {
-            val errorMsg = "Abacus sync error: ${errorMessages.joinToString(", ")}"
-            Log.w("StateManager", errorMsg)
-            showToast(errorMsg, Toast.LENGTH_LONG)
-        }
+        Log.d("StateManager", "syncToAbacus COMPLETE")
     }
     
     /**
-     * Ensure state counter exists, create it if needed, and return its admin key
+     * Get or create admin key for a counter
      */
-    private suspend fun ensureStateCounterExists(placeId: String, key: String): String? {
-        // Check if we already have an admin key stored
+    private suspend fun getOrCreateAdminKey(placeId: String, key: String): String? {
         val adminKeyPref = adminKeyKey(placeId, key)
         var adminKey = context.abacusAdminKeysStore.data.map { it[adminKeyPref] }.first()
-        if (adminKey != null) {
-            Log.d("StateManager", "Using existing admin key for ${placeId}_$key")
-            return adminKey
-        }
         
-        // Try to create the counter
-        Log.d("StateManager", "Creating state counter ${placeId}_$key")
-        adminKey = AbacusService.createCounter(placeId, key)
-        
-        if (adminKey != null) {
-            // Store the admin key for future use
-            context.abacusAdminKeysStore.edit { preferences ->
-                preferences[adminKeyPref] = adminKey
+        if (adminKey == null) {
+            adminKey = AbacusService.createCounter(placeId, key)
+            if (adminKey != null) {
+                context.abacusAdminKeysStore.edit { it[adminKeyPref] = adminKey }
             }
-            Log.d("StateManager", "Created and stored admin key for ${placeId}_$key")
-        } else {
-            // Counter might already exist (409), or creation failed
-            Log.w("StateManager", "Cannot create state counter ${placeId}_$key (may already exist without admin key)")
         }
         
         return adminKey
     }
 
     /**
-     * Reset increment for a specific place
+     * Sync FROM Abacus - only when LOCAL is UNLOCKED
+     * This detects external locks (from polybar script)
+     * When LOCAL is LOCKED, we trust our own state to avoid race conditions
+     * Always uses STATE_PLACE for consistency
      */
+    suspend fun syncFromAbacus() {
+        val localIsLocked = getIsLocked()
+        val localTimestamp = getLockEndTimestamp()
+        
+        // If we're locked locally, check if we should still be locked
+        if (localIsLocked) {
+            // Check if timer expired
+            if (localTimestamp > 0 && System.currentTimeMillis() > localTimestamp) {
+                Log.d("StateManager", "syncFromAbacus: Timer expired, unlocking")
+                unlock()
+                return
+            }
+            
+            // Within grace period after lock? Ignore Abacus completely
+            if (System.currentTimeMillis() - lastLocalLockTime < SYNC_GRACE_PERIOD_MS) {
+                Log.d("StateManager", "syncFromAbacus: Within grace period, skipping")
+                return
+            }
+            
+            // After grace period, only sync FROM Abacus if Abacus shows DIFFERENT timestamp
+            val abacusTimestamp = AbacusService.getValue(STATE_PLACE, "lock_end_timestamp")
+            if (abacusTimestamp != null && abacusTimestamp > 0 && abacusTimestamp != localTimestamp) {
+                Log.d("StateManager", "syncFromAbacus: Abacus has different timestamp, updating: $abacusTimestamp")
+                context.dataStore.edit { preferences ->
+                    preferences[LOCK_END_TIMESTAMP_KEY] = abacusTimestamp
+                }
+            }
+            return
+        }
+        
+        // LOCAL IS UNLOCKED - check if Abacus shows locked (external lock from script)
+        val abacusIsLocked = AbacusService.getValue(STATE_PLACE, "is_locked")
+        val abacusTimestamp = AbacusService.getValue(STATE_PLACE, "lock_end_timestamp")
+        
+        if (abacusIsLocked == 1L && abacusTimestamp != null && abacusTimestamp > System.currentTimeMillis()) {
+            Log.d("StateManager", "syncFromAbacus: External lock detected, timestamp=$abacusTimestamp")
+            
+            // External lock! Update local state
+            val incrementKey = incrementKey(STATE_PLACE)
+            val abacusIncrement = AbacusService.getValue(STATE_PLACE, "increment") ?: 0L
+            
+            context.dataStore.edit { preferences ->
+                preferences[IS_LOCKED_KEY] = true
+                preferences[LOCK_END_TIMESTAMP_KEY] = abacusTimestamp
+                preferences[CURRENT_PLACE_ID_KEY] = STATE_PLACE
+                preferences[incrementKey] = abacusIncrement
+            }
+            
+            // Schedule alarm for this lock
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, AlarmReceiver::class.java).apply {
+                action = "com.airtime.timer.UNLOCK"
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, abacusTimestamp, pendingIntent)
+            } else {
+                alarmManager.setExact(AlarmManager.RTC_WAKEUP, abacusTimestamp, pendingIntent)
+            }
+            
+            showToast("Locked from external source", Toast.LENGTH_SHORT)
+        }
+    }
+
     suspend fun resetIncrement(placeId: String) {
         val key = incrementKey(placeId)
         context.dataStore.edit { preferences ->
@@ -385,12 +378,8 @@ class StateManager(private val context: Context) {
         }
     }
     
-    /**
-     * Reset increment for the current place
-     */
     suspend fun resetCurrentIncrement() {
-        val place = locationConfig.getCurrentPlace()
-        resetIncrement(place.name)
+        resetIncrement(STATE_PLACE)
     }
 
     suspend fun reset() {
@@ -402,10 +391,45 @@ class StateManager(private val context: Context) {
             preferences[key] = 0L
         }
     }
+    
+    /**
+     * Reset everything and sync
+     */
+    suspend fun resetEverything() {
+        // Reset local state
+        val incrementKey = incrementKey(STATE_PLACE)
+        context.dataStore.edit { preferences ->
+            preferences[IS_LOCKED_KEY] = false
+            preferences[LOCK_END_TIMESTAMP_KEY] = 0L
+            preferences[incrementKey] = 0L
+        }
+        
+        // Cancel alarm
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = "com.airtime.timer.UNLOCK"
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        alarmManager.cancel(pendingIntent)
+        
+        // Clear all places
+        locationConfig.clearAllPlaces()
+        
+        // Clear analytics
+        AnalyticsManager(context).clearAll()
+        
+        // Sync to Abacus
+        backgroundScope.launch {
+            syncToAbacus(STATE_PLACE, false, 0L, 0L)
+            showToast("Everything reset", Toast.LENGTH_SHORT)
+        }
+    }
 
     fun getRemainingTimeMillis(lockEndTimestamp: Long): Long {
-        val now = System.currentTimeMillis()
-        return (lockEndTimestamp - now).coerceAtLeast(0)
+        return (lockEndTimestamp - System.currentTimeMillis()).coerceAtLeast(0)
     }
 
     fun getRemainingTimeFormatted(lockEndTimestamp: Long): String {
@@ -413,7 +437,6 @@ class StateManager(private val context: Context) {
         val totalSeconds = remainingMs / 1000
         val minutes = totalSeconds / 60
         val seconds = totalSeconds % 60
-
         return if (minutes > 0) {
             String.format("%dm %ds", minutes, seconds)
         } else {
@@ -421,97 +444,13 @@ class StateManager(private val context: Context) {
         }
     }
     
-    /**
-     * Store admin key for an Abacus counter
-     */
     suspend fun storeAdminKey(placeId: String, key: String, adminKey: String) {
         val adminKeyPref = adminKeyKey(placeId, key)
-        context.abacusAdminKeysStore.edit { preferences ->
-            preferences[adminKeyPref] = adminKey
-        }
-        Log.d("StateManager", "Stored admin key for ${placeId}_$key")
+        context.abacusAdminKeysStore.edit { it[adminKeyPref] = adminKey }
     }
     
-    /**
-     * Get admin key for an Abacus counter
-     */
     suspend fun getAdminKey(placeId: String, key: String): String? {
         val adminKeyPref = adminKeyKey(placeId, key)
         return context.abacusAdminKeysStore.data.map { it[adminKeyPref] }.first()
     }
-    
-    /**
-     * Clear stored admin key (used when token becomes invalid)
-     */
-    private suspend fun clearAdminKey(placeId: String, key: String) {
-        val adminKeyPref = adminKeyKey(placeId, key)
-        context.abacusAdminKeysStore.edit { preferences ->
-            preferences.remove(adminKeyPref)
-        }
-        Log.d("StateManager", "Cleared admin key for ${placeId}_$key")
-    }
-    
-    /**
-     * Sync state FROM Abacus to local DataStore
-     * This detects external changes (e.g., from bash script) and updates local state
-     */
-    suspend fun syncFromAbacus() {
-        val place = locationConfig.getCurrentPlace()
-        
-        // Get current Abacus state
-        val abacusIsLocked = AbacusService.getValue(place.name, "is_locked")
-        val abacusLockEndTimestamp = AbacusService.getValue(place.name, "lock_end_timestamp")
-        val abacusIncrement = AbacusService.getValue(place.name, "increment")
-        
-        // Get current local state
-        val localIsLocked = getIsLocked()
-        val localLockEndTimestamp = getLockEndTimestamp()
-        val localIncrement = getIncrement(place.name)
-        
-        // Check if Abacus state differs from local state
-        val isLockedChanged = abacusIsLocked != null && (abacusIsLocked == 1L) != localIsLocked
-        val timestampChanged = abacusLockEndTimestamp != null && abacusLockEndTimestamp != localLockEndTimestamp
-        val incrementChanged = abacusIncrement != null && abacusIncrement != localIncrement
-        
-        if (isLockedChanged || timestampChanged || incrementChanged) {
-            Log.d("StateManager", "Abacus state differs from local, syncing...")
-            Log.d("StateManager", "Abacus: locked=$abacusIsLocked, timestamp=$abacusLockEndTimestamp, increment=$abacusIncrement")
-            Log.d("StateManager", "Local: locked=$localIsLocked, timestamp=$localLockEndTimestamp, increment=$localIncrement")
-            
-            // Update local state to match Abacus
-            val incrementKey = incrementKey(place.name)
-            context.dataStore.edit { preferences ->
-                if (isLockedChanged && abacusIsLocked != null) {
-                    preferences[IS_LOCKED_KEY] = (abacusIsLocked == 1L)
-                    Log.d("StateManager", "Updated is_locked from Abacus: ${abacusIsLocked == 1L}")
-                }
-                if (timestampChanged && abacusLockEndTimestamp != null) {
-                    preferences[LOCK_END_TIMESTAMP_KEY] = abacusLockEndTimestamp
-                    Log.d("StateManager", "Updated lock_end_timestamp from Abacus: $abacusLockEndTimestamp")
-                }
-                if (incrementChanged && abacusIncrement != null) {
-                    preferences[incrementKey] = abacusIncrement
-                    Log.d("StateManager", "Updated increment from Abacus: $abacusIncrement")
-                }
-                preferences[CURRENT_PLACE_ID_KEY] = place.name
-            }
-            
-            // If we unlocked from Abacus, cancel any pending alarm
-            if (isLockedChanged && abacusIsLocked == 0L) {
-                val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-                val intent = Intent(context, AlarmReceiver::class.java).apply {
-                    action = "com.airtime.timer.UNLOCK"
-                }
-                val pendingIntent = PendingIntent.getBroadcast(
-                    context,
-                    0,
-                    intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-                alarmManager.cancel(pendingIntent)
-                Log.d("StateManager", "Cancelled alarm due to unlock from Abacus")
-            }
-        }
-    }
 }
-

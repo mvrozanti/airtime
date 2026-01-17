@@ -41,7 +41,7 @@ class ConfigFragment : Fragment() {
     private lateinit var baseDurationDisplay: TextView
     private lateinit var incrementStepDisplay: TextView
     private lateinit var currentPlaceDisplay: TextView
-    private lateinit var managePlacesButton: Button
+    private lateinit var resetButton: Button
     private val updateHandler = Handler(Looper.getMainLooper())
     private var updateRunnable: Runnable? = null
     
@@ -64,7 +64,7 @@ class ConfigFragment : Fragment() {
         baseDurationDisplay = view.findViewById(R.id.baseDurationDisplay)
         incrementStepDisplay = view.findViewById(R.id.incrementStepDisplay)
         currentPlaceDisplay = view.findViewById(R.id.currentPlaceDisplay)
-        managePlacesButton = view.findViewById(R.id.managePlacesButton)
+        resetButton = view.findViewById(R.id.resetButton)
         
         // Load current configuration values
         lifecycleScope.launch {
@@ -95,8 +95,11 @@ class ConfigFragment : Fragment() {
             (activity as? ConfigFragmentCallback)?.updateCurrentPlace()
         }
         
-        managePlacesButton.setOnClickListener {
-            (activity as? ConfigFragmentCallback)?.showManagePlacesDialog()
+        resetButton.setOnClickListener {
+            lifecycleScope.launch {
+                stateManager.resetEverything()
+                updateCurrentPlace()
+            }
         }
         
         lockButton.setOnClickListener {
@@ -172,8 +175,13 @@ class ConfigFragment : Fragment() {
                     if (remainingMs > 0) {
                         runnable?.let { updateHandler.postDelayed(it, 1000) }
                     } else {
+                        // Timer expired, unlock
                         stateManager.unlock()
                     }
+                } else if (isLocked && lockEndTimestamp == 0L) {
+                    // Locked but no valid timestamp - this shouldn't happen, unlock it
+                    timeText.text = "--:--"
+                    stateManager.unlock()
                 }
             }
         }
@@ -188,13 +196,17 @@ class ConfigFragment : Fragment() {
     
     fun updateCurrentPlace() {
         lifecycleScope.launch {
+            // Show actual location-based current place (could be Home, Work, or Unknown)
             val place = stateManager.locationConfig.getCurrentPlace()
             currentPlaceDisplay.text = place.name
             
-            baseDurationDisplay.text = place.baseDurationMinutes.toString()
-            incrementStepDisplay.text = place.incrementStepSeconds.toString()
+            // Get settings from Abacus for the current place
+            val baseDuration = stateManager.getBaseDurationMinutes()
+            val incrementStep = stateManager.getIncrementStepSeconds()
+            baseDurationDisplay.text = baseDuration?.toString() ?: place.baseDurationMinutes.toString()
+            incrementStepDisplay.text = incrementStep?.toString() ?: place.incrementStepSeconds.toString()
             
-            val increment = stateManager.getIncrement(place.name)
+            val increment = stateManager.getCurrentIncrement()
             counterText.text = "Cigarettes smoked: $increment"
         }
     }
@@ -220,7 +232,6 @@ class ConfigFragment : Fragment() {
         fun showBaseDurationPicker()
         fun showIncrementStepPicker()
         fun updateCurrentPlace()
-        fun showManagePlacesDialog()
     }
 }
 

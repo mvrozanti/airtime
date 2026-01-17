@@ -22,11 +22,12 @@ import com.nosmoke.timer.adapters.MainPagerAdapter
 import com.nosmoke.timer.data.Place
 import com.nosmoke.timer.data.StateManager
 import com.nosmoke.timer.fragments.ConfigFragment
+import com.nosmoke.timer.fragments.PlacesFragment
 import com.nosmoke.timer.service.SmokeTimerService
 import com.nosmoke.timer.ui.MapPickerDialog
 import kotlinx.coroutines.launch
 
-class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback {
+class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback, PlacesFragment.PlacesFragmentCallback {
 
     private lateinit var stateManager: StateManager
     private lateinit var viewPager: ViewPager2
@@ -77,7 +78,8 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback {
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = when (position) {
                 0 -> "Config"
-                1 -> "Analytics"
+                1 -> "Places"
+                2 -> "Analytics"
                 else -> ""
             }
         }.attach()
@@ -124,6 +126,12 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback {
         // Find ConfigFragment from ViewPager2
         val fragments = supportFragmentManager.fragments
         return fragments.filterIsInstance<ConfigFragment>().firstOrNull()
+    }
+    
+    private fun getPlacesFragment(): PlacesFragment? {
+        // Find PlacesFragment from ViewPager2
+        val fragments = supportFragmentManager.fragments
+        return fragments.filterIsInstance<PlacesFragment>().firstOrNull()
     }
 
     // ConfigFragmentCallback implementations
@@ -197,25 +205,8 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback {
         getConfigFragment()?.updateCurrentPlace()
     }
     
-    override fun showManagePlacesDialog() {
-        lifecycleScope.launch {
-            val places = stateManager.locationConfig.getPlaces()
-            val placeNames = places.map { it.name }.toTypedArray()
-            
-            AlertDialog.Builder(this@MainActivity)
-                .setTitle("Manage Places")
-                .setItems(placeNames) { _, which ->
-                    showEditPlaceDialog(places[which])
-                }
-                .setPositiveButton("Add New Place") { _, _ ->
-                    showAddPlaceDialog()
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
-    }
-    
-    private fun showAddPlaceDialog() {
+    // PlacesFragmentCallback implementations
+    override fun showAddPlaceDialog() {
         lifecycleScope.launch {
             val location = stateManager.locationConfig.getCurrentLocation()
             
@@ -288,6 +279,7 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback {
                             Toast.makeText(this@MainActivity, errorMessage, Toast.LENGTH_LONG).show()
                         }
                         updateCurrentPlace()
+                        getPlacesFragment()?.loadPlaces()
                     }
                 }
                 .setNegativeButton("Cancel", null)
@@ -295,7 +287,7 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback {
         }
     }
     
-    private fun showEditPlaceDialog(place: Place) {
+    override fun showEditPlaceDialog(place: Place) {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 32, 48, 16)
@@ -371,6 +363,7 @@ class MainActivity : FragmentActivity(), ConfigFragment.ConfigFragmentCallback {
                 lifecycleScope.launch {
                     stateManager.locationConfig.deletePlace(place.name)
                     updateCurrentPlace()
+                    getPlacesFragment()?.loadPlaces()
                 }
                     }
                     .setNegativeButton("Cancel", null)

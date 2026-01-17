@@ -125,13 +125,19 @@ class SmokeTimerService : LifecycleService() {
     
     /**
      * Periodically sync state FROM Abacus to detect external changes (e.g., from bash script)
+     * Uses 10-second interval to stay well under rate limit (polybar uses ~3 req/10s)
      */
     private fun startAbacusSync() {
         stopAbacusSync()
         abacusSyncJob = lifecycleScope.launch {
             while (isActive) {
-                delay(5000) // Check every 5 seconds
-                stateManager.syncFromAbacus()
+                delay(10_000) // Check every 10 seconds - conservative to avoid rate limits
+                try {
+                    stateManager.syncFromAbacus()
+                } catch (e: Exception) {
+                    // Don't crash the service on sync errors
+                    android.util.Log.e("SmokeTimerService", "Sync error", e)
+                }
             }
         }
     }

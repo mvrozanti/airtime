@@ -223,20 +223,18 @@
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- Manage Places Button -->
+        <!-- Reset Everything Button -->
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/managePlacesButton"
+            android:id="@+id/resetButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Manage Places"
+            android:text="Reset Everything"
             android:textSize="14sp"
             android:paddingVertical="12dp"
-            app:backgroundTint="@color/surface"
-            app:strokeColor="@color/primary"
-            app:strokeWidth="1dp"
+            app:backgroundTint="@color/error"
             app:cornerRadius="8dp"
-            app:rippleColor="@color/primary_light"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            app:rippleColor="@color/error_light"
+            style="@style/Widget.Material3.Button" />
 
     </LinearLayout>
 

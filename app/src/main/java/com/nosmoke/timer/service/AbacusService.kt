@@ -20,14 +20,17 @@ object AbacusService {
     private const val BASE_URL = "https://abacus.jasoncameron.dev"
     private const val NAMESPACE = "airtime"
     
-    // Rate limiting: 30 requests per 10 seconds = 3 requests per second max
-    // Use a sliding window approach: track requests in the last 10 seconds
+    // Rate limiting: 30 requests per 10 seconds
+    // We're conservative: allow 20 requests per 10 seconds (leaving room for polybar script)
     private val requestTimestamps = mutableListOf<Long>()
     private val rateLimitMutex = Mutex()
-    private const val RATE_LIMIT_REQUESTS = 30
-    private const val RATE_LIMIT_WINDOW_MS = 10_000L // 10 seconds
+    private const val RATE_LIMIT_REQUESTS = 20  // Conservative limit
+    private const val RATE_LIMIT_WINDOW_MS = 10_000L
     
-    // NO CACHE - Always fetch from Abacus to ensure consistency
+    // Cache for GET requests - 30 second TTL
+    // Key: full key (e.g., "Home_is_locked"), Value: Pair(value, timestamp)
+    private val cache = ConcurrentHashMap<String, Pair<Long?, Long>>()
+    private const val CACHE_TTL_MS = 30_000L  // 30 seconds
     
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -41,43 +44,46 @@ object AbacusService {
     private suspend fun checkRateLimit() {
         rateLimitMutex.withLock {
             val now = System.currentTimeMillis()
-            // Remove requests older than the window
             requestTimestamps.removeAll { it < now - RATE_LIMIT_WINDOW_MS }
             
-            // If we're at the limit, wait until the oldest request expires
             if (requestTimestamps.size >= RATE_LIMIT_REQUESTS) {
                 val oldestTimestamp = requestTimestamps.minOrNull() ?: now
                 val waitTime = (oldestTimestamp + RATE_LIMIT_WINDOW_MS) - now
                 if (waitTime > 0) {
                     Log.d("AbacusService", "Rate limit reached, waiting ${waitTime}ms")
                     kotlinx.coroutines.delay(waitTime)
-                    // Clean up again after waiting
                     requestTimestamps.removeAll { it < System.currentTimeMillis() - RATE_LIMIT_WINDOW_MS }
                 }
             }
-            
-            // Record this request
             requestTimestamps.add(System.currentTimeMillis())
         }
     }
 
     /**
-     * Track a lock event for a specific place
+     * Track a lock event for a specific place (fire and forget)
      */
     suspend fun trackLock(placeId: String) {
         trackCounter("${placeId}_locks")
     }
 
     /**
-     * Get a value for a specific place
-     * Key format: {placeId}_{key}
-     * Always fetches from Abacus - NO CACHE
-     * Respects rate limits
+     * Get a value from cache or API
+     * Uses 30-second cache to reduce API calls
      */
     suspend fun getValue(placeId: String, key: String): Long? {
         val fullKey = "${placeId}_$key"
         
-        // Always fetch from API - NO CACHE
+        // Check cache first
+        val cached = cache[fullKey]
+        if (cached != null) {
+            val (value, timestamp) = cached
+            if (System.currentTimeMillis() - timestamp < CACHE_TTL_MS) {
+                Log.d("AbacusService", "Cache hit for $fullKey: $value")
+                return value
+            }
+        }
+        
+        // Cache miss or expired - fetch from API
         checkRateLimit()
         
         return withContext(Dispatchers.IO) {
@@ -92,14 +98,12 @@ object AbacusService {
                 val value = if (response.isSuccessful) {
                     val body = response.body?.string()?.trim()
                     if (body != null && body.isNotEmpty()) {
-                        // Try to parse as JSON first (in case it's {"value": 123})
                         try {
                             val json = JSONObject(body)
                             json.optLong("value", -1).takeIf { it >= 0 }
                                 ?: json.optLong("Value", -1).takeIf { it >= 0 }
                                 ?: body.toLongOrNull()
                         } catch (e: Exception) {
-                            // Not JSON, try parsing as plain number
                             body.toLongOrNull()
                         }
                     } else {
@@ -111,26 +115,54 @@ object AbacusService {
                 }
                 response.close()
                 
+                // Update cache
+                cache[fullKey] = Pair(value, System.currentTimeMillis())
+                
                 if (value != null) {
-                    Log.d("AbacusService", "Retrieved $fullKey: $value")
-                } else {
-                    Log.d("AbacusService", "No value found for $fullKey")
+                    Log.d("AbacusService", "Retrieved $fullKey: $value (cached)")
                 }
                 
                 value
             } catch (e: IOException) {
                 Log.e("AbacusService", "Error getting $fullKey", e)
-                null
+                // Return cached value if API fails
+                cache[fullKey]?.first
             } catch (e: Exception) {
                 Log.e("AbacusService", "Unexpected error getting $fullKey", e)
-                null
+                cache[fullKey]?.first
             }
         }
+    }
+    
+    /**
+     * Force refresh a value from API, bypassing cache
+     */
+    suspend fun getValueFresh(placeId: String, key: String): Long? {
+        val fullKey = "${placeId}_$key"
+        cache.remove(fullKey)  // Clear cache entry
+        return getValue(placeId, key)
+    }
+    
+    /**
+     * Invalidate cache for a key (call after setValue)
+     */
+    fun invalidateCache(placeId: String, key: String) {
+        val fullKey = "${placeId}_$key"
+        cache.remove(fullKey)
+        Log.d("AbacusService", "Invalidated cache for $fullKey")
+    }
+    
+    /**
+     * Update cache directly (for optimistic updates)
+     */
+    fun updateCache(placeId: String, key: String, value: Long) {
+        val fullKey = "${placeId}_$key"
+        cache[fullKey] = Pair(value, System.currentTimeMillis())
+        Log.d("AbacusService", "Updated cache for $fullKey: $value")
     }
 
     /**
      * Create a counter and get its admin key
-     * @return admin key if successful, null otherwise
      */
     suspend fun createCounter(placeId: String, key: String): String? {
         val fullKey = "${placeId}_$key"
@@ -150,28 +182,23 @@ object AbacusService {
                     val responseBody = response.body?.string()?.trim()
                     Log.d("AbacusService", "Create counter $fullKey response: $responseBody")
                     if (responseBody != null && responseBody.isNotEmpty()) {
-                        // Try to parse as JSON first (in case it's {"admin_key": "..."})
                         val adminKey = try {
                             val json = JSONObject(responseBody)
                             json.optString("admin_key", "").takeIf { it.isNotEmpty() }
                                 ?: json.optString("adminKey", "").takeIf { it.isNotEmpty() }
                                 ?: json.optString("token", "").takeIf { it.isNotEmpty() }
-                                ?: responseBody // Use raw response if not JSON
+                                ?: responseBody
                         } catch (e: Exception) {
-                            // Not JSON, use as-is
-                            Log.d("AbacusService", "Response is not JSON, using as-is: $responseBody")
                             responseBody
                         }
                         
                         if (adminKey.isNotEmpty()) {
-                            Log.d("AbacusService", "Created counter $fullKey, extracted admin key (length: ${adminKey.length}, first 10 chars: ${adminKey.take(10)})")
+                            Log.d("AbacusService", "Created counter $fullKey")
                             adminKey
                         } else {
-                            Log.w("AbacusService", "Created counter $fullKey but admin key is empty")
                             null
                         }
                     } else {
-                        Log.w("AbacusService", "Created counter $fullKey but response body is empty")
                         null
                     }
                 } else {
@@ -179,11 +206,8 @@ object AbacusService {
                     Log.w("AbacusService", "Failed to create counter $fullKey: ${response.code} - $errorBody")
                     null
                 }.also { response.close() }
-            } catch (e: IOException) {
-                Log.e("AbacusService", "Error creating counter $fullKey", e)
-                null
             } catch (e: Exception) {
-                Log.e("AbacusService", "Unexpected error creating counter $fullKey", e)
+                Log.e("AbacusService", "Error creating counter $fullKey", e)
                 null
             }
         }
@@ -191,56 +215,75 @@ object AbacusService {
 
     /**
      * Set a value for a specific place
-     * Key format: {placeId}_{key}
-     * Respects rate limits and invalidates cache
-     * Requires admin key for the counter
-     * @param adminKey The admin key for this counter (from createCounter)
-     * @return true if successful, false otherwise
+     * Invalidates cache on success
+     * @return true if successful
      */
     suspend fun setValue(placeId: String, key: String, value: Long, adminKey: String?): Boolean {
         val fullKey = "${placeId}_$key"
         
         if (adminKey == null) {
-            Log.w("AbacusService", "Cannot set $fullKey: no admin key provided")
+            Log.w("AbacusService", "Cannot set $fullKey: no admin key")
             return false
         }
         
-        checkRateLimit()
+        // Optimistically update cache immediately
+        updateCache(placeId, key, value)
         
-        return withContext(Dispatchers.IO) {
-            try {
-                val url = "$BASE_URL/set/$NAMESPACE/$fullKey?value=$value"
-                val headers = mapOf("Authorization" to "Bearer $adminKey")
-                val request = Request.Builder()
-                    .url(url)
-                    .headers(headers.toHeaders())
-                    .post("".toRequestBody("text/plain".toMediaType()))
-                    .build()
+        var retryCount = 0
+        val maxRetries = 2
+        
+        while (retryCount <= maxRetries) {
+            checkRateLimit()
+            
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val url = "$BASE_URL/set/$NAMESPACE/$fullKey?value=$value"
+                    val headers = mapOf("Authorization" to "Bearer $adminKey")
+                    val request = Request.Builder()
+                        .url(url)
+                        .headers(headers.toHeaders())
+                        .post("".toRequestBody("text/plain".toMediaType()))
+                        .build()
 
-                val response = client.newCall(request).execute()
-                val success = response.isSuccessful
-                if (success) {
-                    Log.d("AbacusService", "Stored $fullKey: $value")
-                } else {
-                    val errorBody = response.body?.string()
+                    val response = client.newCall(request).execute()
+                    val success = response.isSuccessful
                     val statusCode = response.code
-                    Log.w("AbacusService", "Failed to store $fullKey: $statusCode - $errorBody")
+                    val errorBody = if (!success) response.body?.string() else null
+                    response.close()
                     
-                    // If token is invalid (401), signal that admin key needs to be cleared
-                    if (statusCode == 401) {
-                        Log.w("AbacusService", "Admin key for $fullKey is invalid, needs to be recreated")
+                    if (success) {
+                        Log.d("AbacusService", "Stored $fullKey: $value")
+                        Pair(true, null)
+                    } else if (statusCode == 429) {
+                        val retryAfter = errorBody?.let {
+                            Regex("Try again in ([0-9.]+)s").find(it)?.groupValues?.get(1)?.toDoubleOrNull()?.toLong()
+                        } ?: 10L
+                        Log.w("AbacusService", "Rate limited for $fullKey, retry in ${retryAfter}s")
+                        Pair(false, retryAfter)
+                    } else {
+                        Log.w("AbacusService", "Failed to store $fullKey: $statusCode - $errorBody")
+                        Pair(false, null)
                     }
+                } catch (e: Exception) {
+                    Log.e("AbacusService", "Error storing $fullKey", e)
+                    Pair(false, null)
                 }
-                response.close()
-                success
-            } catch (e: IOException) {
-                Log.e("AbacusService", "Error storing $fullKey", e)
-                false
-            } catch (e: Exception) {
-                Log.e("AbacusService", "Unexpected error storing $fullKey", e)
-                false
+            }
+            
+            val (success, retryAfter) = result
+            if (success) return true
+            
+            if (retryAfter != null && retryCount < maxRetries) {
+                delay((retryAfter * 1000) + 500)
+                retryCount++
+            } else {
+                // Failed - invalidate cache to force re-fetch
+                invalidateCache(placeId, key)
+                return false
             }
         }
+        
+        return false
     }
 
     private suspend fun trackCounter(key: String) {
@@ -249,25 +292,15 @@ object AbacusService {
         withContext(Dispatchers.IO) {
             try {
                 val url = "$BASE_URL/hit/$NAMESPACE/$key"
-                val request = Request.Builder()
-                    .url(url)
-                    .get()
-                    .build()
-
+                val request = Request.Builder().url(url).get().build()
                 val response = client.newCall(request).execute()
                 if (response.isSuccessful) {
-                    Log.d("AbacusService", "Tracked $key: ${response.body?.string()}")
-                } else {
-                    Log.w("AbacusService", "Failed to track $key: ${response.code}")
+                    Log.d("AbacusService", "Tracked $key")
                 }
                 response.close()
-            } catch (e: IOException) {
-                Log.e("AbacusService", "Error tracking $key", e)
-                // Fail silently - don't break app if tracking fails
             } catch (e: Exception) {
-                Log.e("AbacusService", "Unexpected error tracking $key", e)
+                Log.e("AbacusService", "Error tracking $key", e)
             }
         }
     }
 }
-

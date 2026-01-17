@@ -29,7 +29,7 @@ import com.nosmoke.timer.service.AbacusService
 import androidx.datastore.preferences.core.stringPreferencesKey
 
 private val Context.locationConfigStore: DataStore<Preferences> by preferencesDataStore(name = "location_config")
-private val Context.abacusAdminKeysStore: DataStore<Preferences> by preferencesDataStore(name = "abacus_admin_keys")
+// abacusAdminKeysStore is defined in StateManager.kt - access it there to avoid duplicate DataStore instances
 
 class LocationConfig(private val context: Context) {
     // Handler for showing Toasts from background threads
@@ -90,8 +90,10 @@ class LocationConfig(private val context: Context) {
      * @return Pair of (success: Boolean, errorMessage: String?)
      */
     suspend fun savePlace(place: Place): Pair<Boolean, String?> {
+        // Get current places BEFORE edit block to avoid concurrent modification
+        val currentPlaces = getPlaces().toMutableList()
+        
         context.locationConfigStore.edit { preferences ->
-            val currentPlaces = getPlaces().toMutableList()
             // Use name as the identifier for finding existing places
             val existingIndex = currentPlaces.indexOfFirst { it.name == place.name }
             if (existingIndex >= 0) {
@@ -214,7 +216,7 @@ class LocationConfig(private val context: Context) {
     }
     
     /**
-     * Delete a place by ID
+     * Delete a place by name
      */
     suspend fun deletePlace(placeName: String) {
         context.locationConfigStore.edit { preferences ->
@@ -222,6 +224,23 @@ class LocationConfig(private val context: Context) {
             preferences[PLACES_KEY] = json.encodeToString(currentPlaces)
         }
         Log.d(TAG, "Deleted place: $placeName")
+    }
+    
+    /**
+     * Get a place by name
+     */
+    suspend fun getPlaceByName(name: String): Place? {
+        return getPlaces().firstOrNull { it.name == name }
+    }
+    
+    /**
+     * Clear all places (keeps only DEFAULT)
+     */
+    suspend fun clearAllPlaces() {
+        context.locationConfigStore.edit { preferences ->
+            preferences[PLACES_KEY] = json.encodeToString(emptyList<Place>())
+        }
+        Log.d(TAG, "Cleared all places")
     }
     
     /**
