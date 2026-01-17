@@ -110,6 +110,7 @@ class PlacesFragment : Fragment() {
                     text = buildString {
                         append("Base Duration: ${place.baseDurationMinutes} min")
                         append("\nIncrement Step: ${place.incrementStepSeconds} sec")
+                        append("\nBuffer: ${place.buffer} cigarette${if (place.buffer != 1) "s" else ""}")
                         append("\nLocation: Loading...")
                         append("\nRadius: ${place.radiusMeters.toInt()}m")
                     }
@@ -132,6 +133,7 @@ class PlacesFragment : Fragment() {
                     detailsText.text = buildString {
                         append("Base Duration: ${place.baseDurationMinutes} min")
                         append("\nIncrement Step: ${place.incrementStepSeconds} sec")
+                        append("\nBuffer: ${place.buffer} cigarette${if (place.buffer != 1) "s" else ""}")
                         append("\nLocation: $addressText")
                         append("\nRadius: ${place.radiusMeters.toInt()}m")
                     }

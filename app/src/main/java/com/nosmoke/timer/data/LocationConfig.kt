@@ -35,6 +35,16 @@ class LocationConfig(private val context: Context) {
     // Handler for showing Toasts from background threads
     private val mainHandler = Handler(Looper.getMainLooper())
     
+    // Cache for current location and place to avoid frequent lookups
+    @Volatile
+    private var cachedLocation: Location? = null
+    @Volatile
+    private var cachedPlace: Place? = null
+    @Volatile
+    private var locationCacheTime: Long = 0
+    
+    private val LOCATION_CACHE_TTL_MS = 60_000L // 1 minute cache
+    
     /**
      * Show a Toast message (works from any thread)
      */
@@ -108,6 +118,7 @@ class LocationConfig(private val context: Context) {
         // Use _config_v2 suffix to avoid conflicts with existing counters
         val baseDurationAdminKey = ensureCounterExists(place.name, "base_duration_minutes_config_v2")
         val incrementAdminKey = ensureCounterExists(place.name, "increment_step_seconds_config_v2")
+        val bufferAdminKey = ensureCounterExists(place.name, "buffer_config_v2")
         
         // Sync place settings to Abacus using admin keys
         var baseDurationSuccess = if (baseDurationAdminKey != null) {
@@ -149,17 +160,45 @@ class LocationConfig(private val context: Context) {
             showToast("Failed to sync increment step to Abacus", Toast.LENGTH_LONG)
         }
         
-        val allSuccess = baseDurationSuccess && incrementSuccess
+        var bufferSuccess = if (bufferAdminKey != null) {
+            AbacusService.setValue(place.name, "buffer_config_v2", place.buffer.toLong(), bufferAdminKey)
+        } else {
+            false
+        }
+        
+        // If failed with invalid token, clear admin key and try recreating
+        if (!bufferSuccess && bufferAdminKey != null) {
+            Log.w(TAG, "Buffer sync failed, clearing admin key and retrying")
+            clearAdminKey(place.name, "buffer_config_v2")
+            val newAdminKey = ensureCounterExists(place.name, "buffer_config_v2")
+            if (newAdminKey != null) {
+                bufferSuccess = AbacusService.setValue(place.name, "buffer_config_v2", place.buffer.toLong(), newAdminKey)
+                if (!bufferSuccess) {
+                    showToast("Failed to sync buffer to Abacus", Toast.LENGTH_LONG)
+                }
+            } else {
+                showToast("Failed to create counter for buffer", Toast.LENGTH_LONG)
+            }
+        } else if (!bufferSuccess) {
+            showToast("Failed to sync buffer to Abacus", Toast.LENGTH_LONG)
+        }
+        
+        val allSuccess = baseDurationSuccess && incrementSuccess && bufferSuccess
         val errorMessage = if (!allSuccess) {
             val errors = mutableListOf<String>()
             if (baseDurationAdminKey == null) errors.add("base duration (counter creation failed)")
             else if (!baseDurationSuccess) errors.add("base duration")
             if (incrementAdminKey == null) errors.add("increment step (counter creation failed)")
             else if (!incrementSuccess) errors.add("increment step")
+            if (bufferAdminKey == null) errors.add("buffer (counter creation failed)")
+            else if (!bufferSuccess) errors.add("buffer")
             "Failed to sync ${errors.joinToString(", ")} to Abacus"
         } else {
             null
         }
+        
+        // Invalidate place cache after saving (in case place location/config changed)
+        invalidatePlaceCache()
         
         Log.d(TAG, "Saved place: ${place.name} and synced to Abacus")
         return Pair(allSuccess, errorMessage)
@@ -223,6 +262,7 @@ class LocationConfig(private val context: Context) {
             val currentPlaces = getPlaces().filter { it.name != placeName }
             preferences[PLACES_KEY] = json.encodeToString(currentPlaces)
         }
+        invalidatePlaceCache() // Invalidate cache after deletion
         Log.d(TAG, "Deleted place: $placeName")
     }
     
@@ -240,6 +280,7 @@ class LocationConfig(private val context: Context) {
         context.locationConfigStore.edit { preferences ->
             preferences[PLACES_KEY] = json.encodeToString(emptyList<Place>())
         }
+        invalidatePlaceCache() // Invalidate cache after clearing places
         Log.d(TAG, "Cleared all places")
     }
     
@@ -279,15 +320,45 @@ class LocationConfig(private val context: Context) {
     
     /**
      * Get the place that contains the current location, or DEFAULT if none match
+     * Uses cached location/place if available and fresh (< 1 minute old)
      */
     suspend fun getCurrentPlace(): Place {
+        // Check cache first - if fresh, return cached place
+        val now = System.currentTimeMillis()
+        if (cachedPlace != null && cachedLocation != null && (now - locationCacheTime) < LOCATION_CACHE_TTL_MS) {
+            Log.d(TAG, "Using cached place: ${cachedPlace!!.name}")
+            return cachedPlace!!
+        }
+        
+        // Cache expired or missing - get fresh location
         val location = getCurrentLocation()
         if (location == null) {
             Log.d(TAG, "No location available, using default place")
-            return Place.DEFAULT
+            val defaultPlace = Place.DEFAULT
+            cachedPlace = defaultPlace
+            cachedLocation = null
+            locationCacheTime = now
+            return defaultPlace
         }
         
-        return getPlaceForLocation(location.latitude, location.longitude)
+        // Update cache with fresh location and place
+        val place = getPlaceForLocation(location.latitude, location.longitude)
+        cachedLocation = location
+        cachedPlace = place
+        locationCacheTime = now
+        Log.d(TAG, "Updated place cache: ${place.name}")
+        
+        return place
+    }
+    
+    /**
+     * Invalidate the location/place cache (call after places are added/edited/deleted)
+     */
+    fun invalidatePlaceCache() {
+        cachedLocation = null
+        cachedPlace = null
+        locationCacheTime = 0
+        Log.d(TAG, "Invalidated place cache")
     }
     
     /**

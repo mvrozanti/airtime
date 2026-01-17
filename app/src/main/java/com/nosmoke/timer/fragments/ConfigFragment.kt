@@ -1,5 +1,6 @@
 package com.nosmoke.timer.fragments
 
+import android.app.AlertDialog
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -37,6 +38,8 @@ class ConfigFragment : Fragment() {
     private lateinit var timeText: TextView
     private lateinit var titleText: TextView
     private lateinit var counterText: TextView
+    private lateinit var bufferText: TextView
+    private lateinit var bufferTimeText: TextView
     private lateinit var lockButton: Button
     private lateinit var baseDurationDisplay: TextView
     private lateinit var incrementStepDisplay: TextView
@@ -60,6 +63,8 @@ class ConfigFragment : Fragment() {
         timeText = view.findViewById(R.id.timeText)
         titleText = view.findViewById(R.id.titleText)
         counterText = view.findViewById(R.id.counterText)
+        bufferText = view.findViewById(R.id.bufferText)
+        bufferTimeText = view.findViewById(R.id.bufferTimeText)
         lockButton = view.findViewById(R.id.lockButton)
         baseDurationDisplay = view.findViewById(R.id.baseDurationDisplay)
         incrementStepDisplay = view.findViewById(R.id.incrementStepDisplay)
@@ -96,10 +101,17 @@ class ConfigFragment : Fragment() {
         }
         
         resetButton.setOnClickListener {
-            lifecycleScope.launch {
-                stateManager.resetEverything()
-                updateCurrentPlace()
-            }
+            AlertDialog.Builder(requireContext())
+                .setTitle("Reset Everything?")
+                .setMessage("This will reset all timer state, clear all places, and clear all analytics. This action cannot be undone.")
+                .setPositiveButton("Reset") { _, _ ->
+                    lifecycleScope.launch {
+                        stateManager.resetEverything()
+                        updateCurrentPlace()
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
         
         lockButton.setOnClickListener {
@@ -136,15 +148,47 @@ class ConfigFragment : Fragment() {
                 stateManager.currentPlaceId
             ) { isLocked, lockEndTimestamp, placeId ->
                 Triple(isLocked, lockEndTimestamp, placeId)
-            }.collect { (isLocked, _, placeId) ->
+            }.collect { (isLocked, lockEndTimestamp, placeId) ->
                 val increment = stateManager.getIncrement(placeId)
-                updateUI(isLocked, 0L, increment)  // lockEndTimestamp not used in updateUI
+                updateUI(isLocked, lockEndTimestamp, increment)
             }
         }
     }
     
-    private fun updateUI(isLocked: Boolean, _lockEndTimestamp: Long, increment: Long) {
+    private fun updateUI(isLocked: Boolean, lockEndTimestamp: Long, increment: Long) {
         counterText.text = "Cigarettes smoked: $increment"
+        
+        // Update buffer display
+        lifecycleScope.launch {
+            val place = stateManager.locationConfig.getCurrentPlace()
+            val buffer = place.buffer
+            
+            // Calculate buffer remaining: buffer - (increment % buffer)
+            // Shows how many more cigarettes can be smoked in current buffer cycle
+            // increment 0: 3/3 (3 remaining), increment 1: 2/3 (2 remaining), increment 3: 0/3 (0 remaining - need to lock)
+            val bufferUsed = (increment % buffer).toInt()
+            val bufferRemaining = buffer - bufferUsed
+            bufferText.text = "Buffer: ($bufferRemaining/$buffer)"
+            
+            // Calculate time until next buffer
+            if (isLocked && lockEndTimestamp > 0) {
+                val remainingMs = lockEndTimestamp - System.currentTimeMillis()
+                if (remainingMs > 0) {
+                    val formatted = stateManager.getRemainingTimeFormatted(lockEndTimestamp)
+                    bufferTimeText.text = "Time until next buffer: $formatted"
+                } else {
+                    bufferTimeText.text = "Time until next buffer: Ready"
+                }
+            } else {
+                // Check if buffer is full (need to lock to reset)
+                val needsLock = (increment > 0 && (increment % buffer == 0L))
+                if (needsLock) {
+                    bufferTimeText.text = "Time until next buffer: Lock required"
+                } else {
+                    bufferTimeText.text = "Time until next buffer: Ready"
+                }
+            }
+        }
         
         if (isLocked) {
             titleText.text = "🌿"
@@ -171,8 +215,19 @@ class ConfigFragment : Fragment() {
                 if (isLocked && lockEndTimestamp > 0) {
                     val remaining = stateManager.getRemainingTimeFormatted(lockEndTimestamp)
                     timeText.text = remaining
-                    val remainingMs = stateManager.getRemainingTimeMillis(lockEndTimestamp)
+                    
+                    // Update buffer time text
+                    val place = stateManager.locationConfig.getCurrentPlace()
+                    val buffer = place.buffer
+                    val remainingMs = lockEndTimestamp - System.currentTimeMillis()
                     if (remainingMs > 0) {
+                        bufferTimeText.text = "Time until next buffer: $remaining"
+                    } else {
+                        bufferTimeText.text = "Time until next buffer: Ready"
+                    }
+                    
+                    val remainingMsForCheck = stateManager.getRemainingTimeMillis(lockEndTimestamp)
+                    if (remainingMsForCheck > 0) {
                         runnable?.let { updateHandler.postDelayed(it, 1000) }
                     } else {
                         // Timer expired, unlock

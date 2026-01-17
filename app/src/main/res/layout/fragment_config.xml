@@ -67,6 +67,24 @@
                     android:text="Cigarettes smoked: 0"
                     android:textColor="@color/text_tertiary" />
 
+                <TextView
+                    android:id="@+id/bufferText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="16sp"
+                    android:layout_marginTop="8dp"
+                    android:text="Buffer: (0/1)"
+                    android:textColor="@color/text_tertiary" />
+
+                <TextView
+                    android:id="@+id/bufferTimeText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="16sp"
+                    android:layout_marginTop="8dp"
+                    android:text="Time until next buffer: Ready"
+                    android:textColor="@color/text_tertiary" />
+
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/lockButton"
                     android:layout_width="wrap_content"
