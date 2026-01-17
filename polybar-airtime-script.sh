@@ -2,7 +2,7 @@
 
 # Polybar script for Airtime/Smoke Timer
 # Syncs with Android app via Abacus API
-# NO LOCAL CACHE - Always reads from Abacus, fails if unavailable
+# Uses local cache to handle intermittent Abacus unavailability
 #
 # Usage:
 #   SMOKE_PLACE_NAME="Home" ./polybar-airtime-script.sh           # Display emoji
@@ -17,6 +17,34 @@ ABACUS_NAMESPACE="airtime"
 PLACE_NAME="${SMOKE_PLACE_NAME:-default}"  # Use "default" or set SMOKE_PLACE_NAME env var
 
 ADMIN_KEYS_FILE="/tmp/smoke_timer_admin_keys"  # Store admin keys for writing to Abacus
+CACHE_DIR="/tmp/smoke_timer_cache"
+CACHE_TTL=30  # Cache TTL in seconds
+
+# Ensure cache directory exists
+mkdir -p "$CACHE_DIR" 2>/dev/null || true
+
+# Cache helper functions
+cache_get() {
+    local key="$1"
+    local cache_file="${CACHE_DIR}/${key}"
+    if [ -f "$cache_file" ]; then
+        local timestamp=$(stat -c %Y "$cache_file" 2>/dev/null || echo "0")
+        local now=$(date +%s)
+        local age=$((now - timestamp))
+        if [ "$age" -lt "$CACHE_TTL" ]; then
+            cat "$cache_file"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+cache_set() {
+    local key="$1"
+    local value="$2"
+    local cache_file="${CACHE_DIR}/${key}"
+    echo "$value" > "$cache_file" 2>/dev/null || true
+}
 
 # Abacus API helper functions
 abacus_get() {
@@ -24,9 +52,10 @@ abacus_get() {
     local url="${ABACUS_BASE_URL}/get/${ABACUS_NAMESPACE}/${key}"
     local response=$(curl -s --connect-timeout 5 --max-time 5 "$url" 2>/dev/null)
     
-    # Check if response is empty - FAIL if Abacus is unavailable
+    # Check if response is empty
     if [ -z "$response" ]; then
-        echo ""
+        # Try cache
+        cache_get "$key" && return 0
         return 1
     fi
     
@@ -34,11 +63,12 @@ abacus_get() {
     if echo "$response" | grep -q '"error"'; then
         # Check if it's a rate limit error
         if echo "$response" | grep -q "Too many requests"; then
-            echo ""
+            # Try cache
+            cache_get "$key" && return 0
             return 1
         fi
-        # For other errors like "Key not found", return empty
-        echo ""
+        # For other errors like "Key not found", try cache
+        cache_get "$key" && return 0
         return 1
     fi
     
@@ -51,6 +81,8 @@ abacus_get() {
             value=$(echo "$response" | grep -oE '"value":[0-9]+' | grep -oE '[0-9]+')
         fi
         if [ -n "$value" ]; then
+            # Cache the value
+            cache_set "$key" "$value"
             echo "$value"
             return 0
         fi
@@ -58,17 +90,20 @@ abacus_get() {
     
     # Check if response is plain numeric (backward compatibility)
     if echo "$response" | grep -qE '^[0-9]+$'; then
+        # Cache the value
+        cache_set "$key" "$response"
         echo "$response"
         return 0
     fi
     
-    # If response is "null" or other non-numeric, return empty
+    # If response is "null" or other non-numeric, try cache
     if [ "$response" = "null" ] || [ "$response" = "{}" ]; then
-        echo ""
+        cache_get "$key" && return 0
         return 1
     fi
     
-    # For other cases, return as-is
+    # For other cases, return as-is and cache it
+    cache_set "$key" "$response"
     echo "$response"
     return 0
 }
@@ -158,6 +193,11 @@ abacus_set() {
         return 1
     fi
     
+    # If successful, update cache
+    if [ $? -eq 0 ] || [ -z "$response" ]; then
+        cache_set "$key" "$value"
+    fi
+    
     # Check if successful (2xx response)
     if echo "$response" | grep -qE '^[0-9]+$' || [ -z "$response" ]; then
         return 0
@@ -171,31 +211,42 @@ abacus_track() {
     curl -s --connect-timeout 5 --max-time 5 "$url" >/dev/null 2>&1
 }
 
-# Get current state directly from Abacus (NO LOCAL CACHE)
+# Get current state directly from Abacus (with cache fallback)
 get_state_from_abacus() {
     # Get lock state from Abacus - source of truth
     local locked_value=$(abacus_get "${PLACE_NAME}_is_locked")
     if [ $? -ne 0 ] || [ -z "$locked_value" ]; then
-        # Abacus unavailable or key not found - FAIL
-        return 1
+        # Abacus unavailable - try cache
+        locked_value=$(cache_get "${PLACE_NAME}_is_locked" 2>/dev/null || echo "")
+        if [ -z "$locked_value" ]; then
+            # No cache either - can't determine state
+            return 1
+        fi
     fi
     
     # Get lock end timestamp from Abacus
     local end_time=$(abacus_get "${PLACE_NAME}_lock_end_timestamp")
     if [ $? -ne 0 ] || [ -z "$end_time" ] || [ "$end_time" = "0" ]; then
-        # No valid timestamp
-        end_time=0
+        # Try cache
+        end_time=$(cache_get "${PLACE_NAME}_lock_end_timestamp" 2>/dev/null || echo "0")
+        if [ -z "$end_time" ] || [ "$end_time" = "0" ]; then
+            end_time=0
+        fi
     fi
     
     # Convert from milliseconds to seconds if needed
-    if [ "$end_time" -gt 10000000000 ]; then
+    if [ "$end_time" -gt 10000000000 ] 2>/dev/null; then
         end_time=$((end_time / 1000))
     fi
     
     # Get increment from Abacus
     local increment=$(abacus_get "${PLACE_NAME}_increment")
     if [ $? -ne 0 ] || [ -z "$increment" ]; then
-        increment=0
+        # Try cache
+        increment=$(cache_get "${PLACE_NAME}_increment" 2>/dev/null || echo "0")
+        if [ -z "$increment" ]; then
+            increment=0
+        fi
     fi
     
     # Return state
@@ -207,41 +258,65 @@ get_state_from_abacus() {
     return 0
 }
 
-# Get base duration and increment step from Abacus (NO DEFAULTS - FAIL if not found)
+# Get base duration and increment step from Abacus (with cache and hardcoded defaults)
 get_config_from_abacus() {
-    # Check v2 keys first, then v1, then old format for backward compatibility
-    local base_duration=$(abacus_get "${PLACE_NAME}_base_duration_minutes_config_v2")
+    local base_duration=""
+    local increment_step=""
+    
+    # Try to get from Abacus (check v2 keys first, then v1, then old format)
+    base_duration=$(abacus_get "${PLACE_NAME}_base_duration_minutes_config_v2" 2>/dev/null)
     if [ $? -ne 0 ] || [ -z "$base_duration" ] || ! echo "$base_duration" | grep -qE '^[0-9]+$'; then
-        base_duration=$(abacus_get "${PLACE_NAME}_base_duration_minutes_config")
+        base_duration=$(abacus_get "${PLACE_NAME}_base_duration_minutes_config" 2>/dev/null)
     fi
     if [ $? -ne 0 ] || [ -z "$base_duration" ] || ! echo "$base_duration" | grep -qE '^[0-9]+$'; then
-        base_duration=$(abacus_get "${PLACE_NAME}_base_duration_minutes")
+        base_duration=$(abacus_get "${PLACE_NAME}_base_duration_minutes" 2>/dev/null)
     fi
-    if [ $? -ne 0 ] || [ -z "$base_duration" ] || ! echo "$base_duration" | grep -qE '^[0-9]+$'; then
-        # FAIL - no valid base duration from Abacus
-        return 1
+    # Try cache if Abacus failed
+    if [ -z "$base_duration" ] || ! echo "$base_duration" | grep -qE '^[0-9]+$'; then
+        base_duration=$(cache_get "${PLACE_NAME}_base_duration_minutes_config_v2" 2>/dev/null || echo "")
+        if [ -z "$base_duration" ] || ! echo "$base_duration" | grep -qE '^[0-9]+$'; then
+            base_duration=$(cache_get "${PLACE_NAME}_base_duration_minutes_config" 2>/dev/null || echo "")
+        fi
+        if [ -z "$base_duration" ] || ! echo "$base_duration" | grep -qE '^[0-9]+$'; then
+            base_duration=$(cache_get "${PLACE_NAME}_base_duration_minutes" 2>/dev/null || echo "")
+        fi
     fi
     
-    local increment_step=$(abacus_get "${PLACE_NAME}_increment_step_seconds_config_v2")
+    increment_step=$(abacus_get "${PLACE_NAME}_increment_step_seconds_config_v2" 2>/dev/null)
     if [ $? -ne 0 ] || [ -z "$increment_step" ] || ! echo "$increment_step" | grep -qE '^[0-9]+$'; then
-        increment_step=$(abacus_get "${PLACE_NAME}_increment_step_seconds_config")
+        increment_step=$(abacus_get "${PLACE_NAME}_increment_step_seconds_config" 2>/dev/null)
     fi
     if [ $? -ne 0 ] || [ -z "$increment_step" ] || ! echo "$increment_step" | grep -qE '^[0-9]+$'; then
-        increment_step=$(abacus_get "${PLACE_NAME}_increment_step_seconds")
+        increment_step=$(abacus_get "${PLACE_NAME}_increment_step_seconds" 2>/dev/null)
     fi
-    if [ $? -ne 0 ] || [ -z "$increment_step" ] || ! echo "$increment_step" | grep -qE '^[0-9]+$'; then
-        # FAIL - no valid increment step from Abacus
-        return 1
+    # Try cache if Abacus failed
+    if [ -z "$increment_step" ] || ! echo "$increment_step" | grep -qE '^[0-9]+$'; then
+        increment_step=$(cache_get "${PLACE_NAME}_increment_step_seconds_config_v2" 2>/dev/null || echo "")
+        if [ -z "$increment_step" ] || ! echo "$increment_step" | grep -qE '^[0-9]+$'; then
+            increment_step=$(cache_get "${PLACE_NAME}_increment_step_seconds_config" 2>/dev/null || echo "")
+        fi
+        if [ -z "$increment_step" ] || ! echo "$increment_step" | grep -qE '^[0-9]+$'; then
+            increment_step=$(cache_get "${PLACE_NAME}_increment_step_seconds" 2>/dev/null || echo "")
+        fi
+    fi
+    
+    # Use hardcoded defaults if Abacus unavailable and no cache
+    # These are script defaults, NOT local cache
+    if [ -z "$base_duration" ] || ! echo "$base_duration" | grep -qE '^[0-9]+$'; then
+        base_duration=45  # Default 45 minutes
+    fi
+    if [ -z "$increment_step" ] || ! echo "$increment_step" | grep -qE '^[0-9]+$'; then
+        increment_step=1  # Default 1 second
     fi
     
     echo "$base_duration|$increment_step"
     return 0
 }
 
-# Get current state from Abacus
+# Get current state from Abacus (with cache fallback)
 STATE_INFO=$(get_state_from_abacus)
 if [ $? -ne 0 ]; then
-    # Abacus unavailable - FAIL
+    # Abacus unavailable and no cache - FAIL
     echo "❌"  # Error emoji
     exit 1
 fi
@@ -250,13 +325,8 @@ STATE=$(echo "$STATE_INFO" | cut -d'|' -f1)
 END_TIME=$(echo "$STATE_INFO" | cut -d'|' -f2)
 INCREMENT=$(echo "$STATE_INFO" | cut -d'|' -f3)
 
-# Get config from Abacus
+# Get config from Abacus (uses cache and hardcoded defaults if unavailable)
 CONFIG_INFO=$(get_config_from_abacus)
-if [ $? -ne 0 ]; then
-    # Abacus unavailable or config not found - FAIL
-    echo "❌"
-    exit 1
-fi
 
 BASE_DURATION_MINUTES=$(echo "$CONFIG_INFO" | cut -d'|' -f1)
 INCREMENT_STEP_SECONDS=$(echo "$CONFIG_INFO" | cut -d'|' -f2)
