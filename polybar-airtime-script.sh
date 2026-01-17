@@ -15,7 +15,7 @@ ABACUS_NAMESPACE="airtime"
 # Example: If app has "Home", use SMOKE_PLACE_NAME="Home" (not "home")
 PLACE_NAME="${SMOKE_PLACE_NAME:-default}"  # Use "default" or set SMOKE_PLACE_NAME env var
 
-# Local state files (used as cache/fallback)
+# Local state files (used as cache)
 STATE_FILE="/tmp/smoke_timer.state"
 END_FILE="/tmp/smoke_timer.end"
 INCREMENT_FILE="/tmp/smoke_timer.increment"
@@ -257,7 +257,7 @@ sync_from_abacus 2>/dev/null || true
 STATE=$(cat "$STATE_FILE")
 INCREMENT=$(cat "$INCREMENT_FILE" 2>/dev/null || echo "0")
 
-# Try to get base duration and increment step from Abacus (with fallback)
+# Try to get base duration and increment step from Abacus
 # Check v2 keys first, then v1, then old format for backward compatibility
 BASE_DURATION_MINUTES=$(abacus_get "${PLACE_NAME}_base_duration_minutes_config_v2" 2>/dev/null)
 if [ -z "$BASE_DURATION_MINUTES" ] || ! echo "$BASE_DURATION_MINUTES" | grep -qE '^[0-9]+$'; then

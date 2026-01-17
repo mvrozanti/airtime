@@ -184,7 +184,7 @@ object AbacusService {
                             json.optString("admin_key", "").takeIf { it.isNotEmpty() }
                                 ?: json.optString("adminKey", "").takeIf { it.isNotEmpty() }
                                 ?: json.optString("token", "").takeIf { it.isNotEmpty() }
-                                ?: responseBody // Fallback to raw response if not JSON
+                                ?: responseBody // Use raw response if not JSON
                         } catch (e: Exception) {
                             // Not JSON, use as-is
                             Log.d("AbacusService", "Response is not JSON, using as-is: $responseBody")
